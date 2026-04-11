@@ -1,0 +1,16 @@
+[colors]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+accent     = "#89b4fa"
+urgent     = "#f38ba8"
+surface    = "#313244"
+overlay    = "#6c7086"
+
+[fonts]
+family      = "Inter"
+mono_family = "JetBrains Mono"
+size        = 14.0
+
+[style]
+border_radius = 8.0
+opacity       = 0.85

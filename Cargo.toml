@@ -1,0 +1,42 @@
+[workspace]
+members = [
+    "crates/hyprcube",
+    "crates/hyprcube-core",
+    "crates/hyprcube-panels",
+    "crates/hyprcube-hyprconf",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Wayland / Smithay
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+
+# Rendering
+tiny-skia = "0.11"
+cosmic-text = "0.12"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# Serialization / Config
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "2"
+
+# Image / Icons
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+freedesktop-icons = "0.2"
+
+# Internal crates
+hyprcube-core = { path = "crates/hyprcube-core" }
+hyprcube-panels = { path = "crates/hyprcube-panels" }
+hyprcube-hyprconf = { path = "crates/hyprcube-hyprconf" }
