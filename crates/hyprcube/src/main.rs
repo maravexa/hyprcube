@@ -2,6 +2,8 @@ mod cli;
 mod config;
 mod preview;
 mod registry;
+mod sidebar;
+mod wayland;
 
 use config::AppConfig;
 use hyprcube_core::palette::Palette;
@@ -48,7 +50,7 @@ fn main() {
     tracing::debug!("loaded config: {app_config:?}");
 
     // 3. Load or create Palette (save default if missing).
-    let _palette = match Palette::load(None) {
+    let palette = match Palette::load(None) {
         Ok(p) => {
             tracing::debug!("loaded palette");
             p
@@ -80,15 +82,21 @@ fn main() {
     }
 
     // 5. Build PreviewEngine.
-    let _preview = PreviewEngine::new();
+    let preview = PreviewEngine::new();
 
     // 6. Log panel count and titles.
     let panel_info = registry.available_panels();
     let titles: Vec<&str> = panel_info.iter().map(|(_, t, _)| *t).collect();
     tracing::info!("{} panels available: {}", panel_info.len(), titles.join(", "));
 
-    // 7. TODO: Wayland event loop will go here.
-    tracing::debug!("Wayland event loop will go here");
+    // 7. Run the Wayland event loop (takes ownership of all state).
+    let app_config = match wayland::run(registry, preview, app_config, palette) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     // 8. Save AppConfig on exit.
     if let Err(e) = app_config.save() {
