@@ -1,0 +1,87 @@
+pub mod about;
+pub mod appearance;
+pub mod display;
+pub mod hyprdeck;
+pub mod hyprland;
+pub mod hyprsaver;
+pub mod input;
+
+use hyprcube_core::layout::Rect;
+use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
+
+// ---------------------------------------------------------------------------
+// PanelError
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, thiserror::Error)]
+pub enum PanelError {
+    #[error("unknown key: {0}")]
+    UnknownKey(String),
+    #[error("invalid value for {key}: {reason}")]
+    InvalidValue { key: String, reason: String },
+    #[error("config error: {0}")]
+    Config(String),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+// ---------------------------------------------------------------------------
+// FieldType / PanelField
+// ---------------------------------------------------------------------------
+
+/// The type of a configurable field, used to select the appropriate widget.
+#[derive(Debug, Clone)]
+pub enum FieldType {
+    Text,
+    Integer { min: Option<i64>, max: Option<i64> },
+    Float { min: Option<f64>, max: Option<f64> },
+    Boolean,
+    Choice { options: Vec<String> },
+    Color,
+    KeyBind,
+}
+
+/// Runtime description of a single configurable field within a panel.
+#[derive(Debug, Clone)]
+pub struct PanelField {
+    pub key: String,
+    pub label: String,
+    pub description: String,
+    pub field_type: FieldType,
+    pub current_value: String,
+}
+
+// ---------------------------------------------------------------------------
+// SettingsPanel trait
+// ---------------------------------------------------------------------------
+
+/// A settings panel that can be displayed in the sidebar and renders a
+/// scrollable form of configurable fields.
+pub trait SettingsPanel {
+    /// Human-readable title for the sidebar.
+    fn title(&self) -> &str;
+
+    /// Freedesktop icon name.
+    fn icon(&self) -> &str;
+
+    /// Whether this panel should appear (false if the app it configures isn't
+    /// installed).
+    fn available(&self) -> bool {
+        true
+    }
+
+    /// Collect all configurable fields for this panel.
+    fn fields(&self) -> Vec<PanelField>;
+
+    /// Apply a value change. Returns the old value for undo.
+    fn set_value(&mut self, key: &str, value: &str) -> Result<String, PanelError>;
+
+    /// Widget measure hook.
+    fn measure(&self, constraints: Constraints) -> Size;
+
+    /// Widget paint hook.
+    fn paint(&self, bounds: Rect, pixmap: &mut tiny_skia::PixmapMut<'_>);
+
+    /// Widget event hook.
+    fn event(&mut self, event: &Event, bounds: Rect) -> EventResponse;
+}

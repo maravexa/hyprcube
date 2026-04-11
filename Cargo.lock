@@ -319,6 +319,12 @@ name = "hyprcube-panels"
 version = "0.1.0"
 dependencies = [
  "hyprcube-core",
+ "hyprcube-hyprconf",
+ "serde",
+ "thiserror 2.0.18",
+ "tiny-skia",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
