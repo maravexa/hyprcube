@@ -1,0 +1,13 @@
+[package]
+name = "hyprcube"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hyprcube-core = { workspace = true }
+hyprcube-panels = { workspace = true }
+hyprcube-hyprconf = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+smithay-client-toolkit = { workspace = true }

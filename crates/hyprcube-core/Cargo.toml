@@ -1,0 +1,14 @@
+[package]
+name = "hyprcube-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tiny-skia = { workspace = true }
+cosmic-text = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
