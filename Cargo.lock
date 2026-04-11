@@ -285,8 +285,11 @@ dependencies = [
  "hyprcube-core",
  "hyprcube-hyprconf",
  "hyprcube-panels",
+ "serde",
  "smithay-client-toolkit",
+ "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]
