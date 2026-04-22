@@ -1,4 +1,5 @@
 pub mod color;
+pub mod color_picker;
 pub mod ipc;
 pub mod layout;
 pub mod palette;

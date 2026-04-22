@@ -3,6 +3,20 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+// Preset palettes embedded at compile time.
+const PRESET_MOCHA: &str =
+    include_str!("../../../themes/catppuccin-mocha/palette.toml");
+const PRESET_LATTE: &str =
+    include_str!("../../../themes/catppuccin-latte/palette.toml");
+const PRESET_NORD: &str =
+    include_str!("../../../themes/nord/palette.toml");
+const PRESET_GRUVBOX: &str =
+    include_str!("../../../themes/gruvbox-dark/palette.toml");
+const PRESET_TOKYO: &str =
+    include_str!("../../../themes/tokyo-night/palette.toml");
+const PRESET_DRACULA: &str =
+    include_str!("../../../themes/dracula/palette.toml");
+
 #[derive(Debug, Error)]
 pub enum PaletteError {
     #[error("failed to read palette file: {0}")]
@@ -88,6 +102,22 @@ impl Palette {
         let contents = std::fs::read_to_string(&path)?;
         let palette: Palette = toml::from_str(&contents)?;
         Ok(palette)
+    }
+
+    /// Return all built-in preset palettes as `(name, palette)` pairs.
+    /// Ordering matches the display order in the Appearance panel dropdown.
+    pub fn builtin_presets() -> Vec<(&'static str, Palette)> {
+        let parse = |s: &'static str| -> Palette {
+            toml::from_str(s).unwrap_or_default()
+        };
+        vec![
+            ("Catppuccin Mocha", parse(PRESET_MOCHA)),
+            ("Catppuccin Latte", parse(PRESET_LATTE)),
+            ("Nord", parse(PRESET_NORD)),
+            ("Gruvbox Dark", parse(PRESET_GRUVBOX)),
+            ("Tokyo Night", parse(PRESET_TOKYO)),
+            ("Dracula", parse(PRESET_DRACULA)),
+        ]
     }
 
     /// Save the palette to the given path, or the default XDG path if `None`.
