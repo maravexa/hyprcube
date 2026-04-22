@@ -28,7 +28,6 @@ use wayland_client::{
     Connection, QueueHandle,
 };
 
-use cosmic_text::{FontSystem, SwashCache};
 use tiny_skia::Pixmap;
 
 use crate::config::AppConfig;
@@ -38,6 +37,7 @@ use crate::sidebar;
 use hyprcube_core::color::Color;
 use hyprcube_core::layout::Rect;
 use hyprcube_core::palette::Palette;
+use hyprcube_core::text::{RenderContext, TextRenderer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum WaylandError {
@@ -70,8 +70,7 @@ pub struct HyprCubeApp {
     palette: Palette,
 
     // Text rendering
-    font_system: FontSystem,
-    swash_cache: SwashCache,
+    text_renderer: TextRenderer,
 
     // Window dimensions
     width: u32,
@@ -108,8 +107,7 @@ impl HyprCubeApp {
             &mut pixmap,
             &self.registry,
             &self.palette,
-            &mut self.font_system,
-            &mut self.swash_cache,
+            &mut self.text_renderer,
             self.hover_panel,
             width,
             height,
@@ -150,8 +148,7 @@ impl HyprCubeApp {
         pixmap: &mut Pixmap,
         registry: &PanelRegistry,
         palette: &Palette,
-        font_system: &mut FontSystem,
-        swash_cache: &mut SwashCache,
+        text_renderer: &mut TextRenderer,
         hover_panel: Option<usize>,
         width: u32,
         height: u32,
@@ -182,8 +179,7 @@ impl HyprCubeApp {
         let mut pm = pixmap.as_mut();
         sidebar::paint(
             &mut pm,
-            font_system,
-            swash_cache,
+            text_renderer,
             &titles,
             active_visual,
             hover_panel,
@@ -205,7 +201,8 @@ impl HyprCubeApp {
                 width: content_width,
                 height: height as f32,
             };
-            registry.active_panel().paint(bounds, &mut pm);
+            let mut ctx = RenderContext { text: text_renderer, palette };
+            registry.active_panel().paint(bounds, &mut pm, &mut ctx);
         }
     }
 }
@@ -571,8 +568,7 @@ pub fn run(
         preview,
         config,
         palette,
-        font_system: FontSystem::new(),
-        swash_cache: SwashCache::new(),
+        text_renderer: TextRenderer::new(),
         width,
         height,
         needs_redraw: true,

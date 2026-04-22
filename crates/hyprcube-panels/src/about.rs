@@ -84,7 +84,12 @@ impl SettingsPanel for AboutPanel {
         }
     }
 
-    fn paint(&self, _bounds: Rect, _pixmap: &mut tiny_skia::PixmapMut<'_>) {
+    fn paint(
+        &self,
+        _bounds: Rect,
+        _pixmap: &mut tiny_skia::PixmapMut<'_>,
+        _ctx: &mut hyprcube_core::text::RenderContext<'_>,
+    ) {
         // Will render system info cards later.
     }
 

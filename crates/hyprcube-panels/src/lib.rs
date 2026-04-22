@@ -7,6 +7,7 @@ pub mod hyprsaver;
 pub mod input;
 
 use hyprcube_core::layout::Rect;
+use hyprcube_core::text::RenderContext;
 use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,12 @@ pub trait SettingsPanel {
     fn measure(&self, constraints: Constraints) -> Size;
 
     /// Widget paint hook.
-    fn paint(&self, bounds: Rect, pixmap: &mut tiny_skia::PixmapMut<'_>);
+    fn paint(
+        &self,
+        bounds: Rect,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        ctx: &mut RenderContext<'_>,
+    );
 
     /// Widget event hook.
     fn event(&mut self, event: &Event, bounds: Rect) -> EventResponse;
