@@ -7,19 +7,14 @@ use crate::{FieldType, PanelError, PanelField, SettingsPanel};
 
 /// Settings panel for HyprDeck (application launcher / dock).
 pub struct HyprdeckPanel {
-    config_dir: PathBuf,
     config: Option<toml::Table>,
 }
 
 impl HyprdeckPanel {
     pub fn new() -> Self {
         let config_dir = hyprdeck_config_dir();
-        let config = if config_dir.is_dir() {
-            load_hyprdeck_config(&config_dir)
-        } else {
-            None
-        };
-        Self { config_dir, config }
+        let config = if config_dir.is_dir() { load_hyprdeck_config(&config_dir) } else { None };
+        Self { config }
     }
 }
 
@@ -64,14 +59,18 @@ impl SettingsPanel for HyprdeckPanel {
         "application-menu"
     }
 
-    fn available(&self) -> bool {
-        self.config_dir.is_dir()
-    }
-
     fn fields(&self) -> Vec<PanelField> {
         let table = match &self.config {
             Some(t) => t,
-            None => return Vec::new(),
+            None => {
+                return vec![PanelField {
+                    key: "_not_installed".into(),
+                    label: "HyprDeck is not installed".into(),
+                    description: String::new(),
+                    field_type: FieldType::Text,
+                    current_value: String::new(),
+                }];
+            }
         };
 
         vec![
@@ -151,13 +150,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unavailable_when_dir_missing() {
-        let panel = HyprdeckPanel {
-            config_dir: PathBuf::from("/nonexistent/hyprdeck"),
-            config: None,
-        };
-        assert!(!panel.available());
-        assert!(panel.fields().is_empty());
+    fn not_installed_message_when_dir_missing() {
+        let panel = HyprdeckPanel { config: None };
+        let fields = panel.fields();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].key, "_not_installed");
     }
 
     #[test]
@@ -167,10 +164,7 @@ mod tests {
         table.insert("position".into(), toml::Value::String("bottom".into()));
         table.insert("auto_hide".into(), toml::Value::String("true".into()));
 
-        let panel = HyprdeckPanel {
-            config_dir: PathBuf::from("/tmp"),
-            config: Some(table),
-        };
+        let panel = HyprdeckPanel { config: Some(table) };
         let fields = panel.fields();
         assert_eq!(fields.len(), 3);
 
@@ -183,10 +177,7 @@ mod tests {
         let mut table = toml::Table::new();
         table.insert("position".into(), toml::Value::String("bottom".into()));
 
-        let mut panel = HyprdeckPanel {
-            config_dir: PathBuf::from("/tmp"),
-            config: Some(table),
-        };
+        let mut panel = HyprdeckPanel { config: Some(table) };
         let old = panel.set_value("position", "top").unwrap();
         assert_eq!(old, "bottom");
     }

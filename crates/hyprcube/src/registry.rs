@@ -65,6 +65,11 @@ impl PanelRegistry {
         self.active_index = index;
     }
 
+    /// The index of the currently active panel.
+    pub fn active_index(&self) -> usize {
+        self.active_index
+    }
+
     /// Number of available panels.
     pub fn len(&self) -> usize {
         self.panels.len()

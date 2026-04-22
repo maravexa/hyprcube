@@ -1,6 +1,7 @@
 pub mod about;
 pub mod appearance;
 pub mod display;
+pub mod form;
 pub mod hyprdeck;
 pub mod hyprland;
 pub mod hyprsaver;
@@ -90,4 +91,10 @@ pub trait SettingsPanel {
 
     /// Widget event hook.
     fn event(&mut self, event: &Event, bounds: Rect) -> EventResponse;
+
+    /// Build a scrollable form for this panel's fields.
+    /// Panels that need a custom layout (e.g. Display) can override this.
+    fn build_form(&self, content_width: f32) -> form::FormLayout {
+        form::FormLayout::from_fields(self.fields(), content_width)
+    }
 }
