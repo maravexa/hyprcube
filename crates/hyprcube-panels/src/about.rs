@@ -70,7 +70,16 @@ impl SettingsPanel for AboutPanel {
     }
 
     fn fields(&self) -> Vec<PanelField> {
-        Vec::new()
+        self.system_info()
+            .into_iter()
+            .map(|(label, value)| PanelField {
+                key: label.to_lowercase().replace(' ', "_"),
+                label,
+                description: String::new(),
+                field_type: crate::FieldType::Text,
+                current_value: value,
+            })
+            .collect()
     }
 
     fn set_value(&mut self, key: &str, _value: &str) -> Result<String, PanelError> {
@@ -103,9 +112,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn about_has_no_editable_fields() {
+    fn about_fields_include_version() {
         let panel = AboutPanel::new();
-        assert!(panel.fields().is_empty());
+        let fields = panel.fields();
+        assert!(!fields.is_empty());
+        let ver = fields.iter().find(|f| f.key == "hyprcube");
+        assert!(ver.is_some());
     }
 
     #[test]

@@ -38,6 +38,9 @@ use hyprcube_core::color::Color;
 use hyprcube_core::layout::Rect;
 use hyprcube_core::palette::Palette;
 use hyprcube_core::text::{RenderContext, TextRenderer};
+use hyprcube_core::widget::Event as WidgetEvent;
+use hyprcube_core::widget::WidgetAction;
+use hyprcube_panels::form::FormLayout;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WaylandError {
@@ -79,6 +82,11 @@ pub struct HyprCubeApp {
     first_configure: bool,
     exit: bool,
 
+    // Form layout (rebuilt when the active panel or window width changes)
+    form: Option<FormLayout>,
+    form_panel_idx: usize,
+    form_content_width: f32,
+
     // Pointer state
     pointer: Option<wl_pointer::WlPointer>,
     pointer_x: f64,
@@ -89,12 +97,61 @@ pub struct HyprCubeApp {
     keyboard: Option<wl_keyboard::WlKeyboard>,
 }
 
+/// Map a raw XKB keysym value to a key name string matching what `Widget::event` expects.
+fn keysym_name(raw: u32) -> String {
+    match raw {
+        0xff08 => "BackSpace".into(),
+        0xffff => "Delete".into(),
+        0xff51 => "Left".into(),
+        0xff52 => "Up".into(),
+        0xff53 => "Right".into(),
+        0xff54 => "Down".into(),
+        0xff50 => "Home".into(),
+        0xff57 => "End".into(),
+        0xff0d | 0xff8d => "Return".into(),
+        0xff1b => "Escape".into(),
+        0xff09 => "Tab".into(),
+        other => format!("{other:#010x}"),
+    }
+}
+
 impl HyprCubeApp {
+    fn content_bounds(width: u32, height: u32) -> Rect {
+        const PADDING: f32 = 16.0;
+        let content_x = sidebar::SIDEBAR_WIDTH + PADDING;
+        Rect {
+            x: content_x,
+            y: PADDING,
+            width: (width as f32 - content_x - PADDING).max(0.0),
+            height: (height as f32 - PADDING * 2.0).max(0.0),
+        }
+    }
+
     fn draw(&mut self, qh: &QueueHandle<Self>) {
         let width = self.width;
         let height = self.height;
         if width == 0 || height == 0 {
             return;
+        }
+
+        // Rebuild form when panel or content width changes.
+        const PADDING: f32 = 16.0;
+        let content_x = sidebar::SIDEBAR_WIDTH;
+        let content_w = (width as f32 - content_x - PADDING * 2.0).max(0.0);
+        let content_h = height as f32 - PADDING * 2.0;
+        let active_idx = self.registry.active_index();
+
+        if self.form.is_none()
+            || active_idx != self.form_panel_idx
+            || (content_w - self.form_content_width).abs() > 0.5
+        {
+            let mut form = self.registry.active_panel().build_form(content_w);
+            form.set_viewport_height(content_h);
+            self.form = Some(form);
+            self.form_panel_idx = active_idx;
+            self.form_content_width = content_w;
+        } else if let Some(f) = &mut self.form {
+            f.set_viewport_height(content_h);
         }
 
         // Render to a temporary pixmap first (avoids borrow conflicts with pool)
@@ -111,6 +168,7 @@ impl HyprCubeApp {
             self.hover_panel,
             width,
             height,
+            self.form.as_ref(),
         );
 
         // Create buffer from the pool
@@ -152,6 +210,7 @@ impl HyprCubeApp {
         hover_panel: Option<usize>,
         width: u32,
         height: u32,
+        form: Option<&FormLayout>,
     ) {
         let bg = Color::from_hex(&palette.colors.background)
             .unwrap_or(Color::new(0.118, 0.118, 0.18, 1.0));
@@ -192,17 +251,22 @@ impl HyprCubeApp {
         );
 
         // Paint active panel content area
-        let content_x = sidebar::SIDEBAR_WIDTH;
-        let content_width = width as f32 - content_x;
+        const PADDING: f32 = 16.0;
+        let content_x = sidebar::SIDEBAR_WIDTH + PADDING;
+        let content_width = width as f32 - content_x - PADDING;
         if content_width > 0.0 {
             let bounds = Rect {
                 x: content_x,
-                y: 0.0,
+                y: PADDING,
                 width: content_width,
-                height: height as f32,
+                height: height as f32 - PADDING * 2.0,
             };
             let mut ctx = RenderContext { text: text_renderer, palette };
-            registry.active_panel().paint(bounds, &mut pm, &mut ctx);
+            if let Some(f) = form {
+                f.paint(bounds, &mut ctx, &mut pm);
+            } else {
+                registry.active_panel().paint(bounds, &mut pm, &mut ctx);
+            }
         }
     }
 }
@@ -386,12 +450,63 @@ impl PointerHandler for HyprCubeApp {
                 }
                 PointerEventKind::Press { button, .. } => {
                     // BTN_LEFT = 0x110
-                    if button == 0x110 && self.pointer_x < sidebar::SIDEBAR_WIDTH as f64 {
-                        let panel_count = self.registry.available_panels().len();
-                        if let Some(idx) = sidebar::hit_test(self.pointer_y as f32, panel_count) {
-                            self.registry.set_active(idx);
-                            self.config.last_panel = idx;
-                            self.needs_redraw = true;
+                    if button == 0x110 {
+                        if self.pointer_x < sidebar::SIDEBAR_WIDTH as f64 {
+                            let panel_count = self.registry.available_panels().len();
+                            if let Some(idx) =
+                                sidebar::hit_test(self.pointer_y as f32, panel_count)
+                            {
+                                self.registry.set_active(idx);
+                                self.config.last_panel = idx;
+                                self.needs_redraw = true;
+                            }
+                        } else if let Some(form) = &mut self.form {
+                            let bounds = Self::content_bounds(self.width, self.height);
+                            let ev = WidgetEvent::PointerDown {
+                                x: self.pointer_x as f32,
+                                y: self.pointer_y as f32,
+                            };
+                            let resp = form.event(&ev, bounds);
+                            if resp.consumed {
+                                self.needs_redraw = true;
+                            }
+                            if let Some(WidgetAction::ValueChanged { ref key, ref value }) =
+                                resp.action
+                            {
+                                let _ = self.preview.apply_preview(key, value);
+                            }
+                        }
+                    }
+                }
+                PointerEventKind::Release { button, .. } => {
+                    if button == 0x110 && self.pointer_x >= sidebar::SIDEBAR_WIDTH as f64 {
+                        if let Some(form) = &mut self.form {
+                            let bounds = Self::content_bounds(self.width, self.height);
+                            let ev = WidgetEvent::PointerUp {
+                                x: self.pointer_x as f32,
+                                y: self.pointer_y as f32,
+                            };
+                            let resp = form.event(&ev, bounds);
+                            if resp.consumed {
+                                self.needs_redraw = true;
+                            }
+                            if let Some(WidgetAction::ValueChanged { ref key, ref value }) =
+                                resp.action
+                            {
+                                let _ = self.preview.apply_preview(key, value);
+                            }
+                        }
+                    }
+                }
+                PointerEventKind::Axis { vertical, .. } => {
+                    if self.pointer_x >= sidebar::SIDEBAR_WIDTH as f64 {
+                        if let Some(form) = &mut self.form {
+                            let bounds = Self::content_bounds(self.width, self.height);
+                            let ev = WidgetEvent::Scroll { dx: 0.0, dy: vertical.absolute as f32 };
+                            let resp = form.event(&ev, bounds);
+                            if resp.consumed {
+                                self.needs_redraw = true;
+                            }
                         }
                     }
                 }
@@ -437,7 +552,7 @@ impl KeyboardHandler for HyprCubeApp {
     fn press_key(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         _keyboard: &wl_keyboard::WlKeyboard,
         _serial: u32,
         event: KeyEvent,
@@ -445,6 +560,21 @@ impl KeyboardHandler for HyprCubeApp {
         // XKB_KEY_Escape = 0xff1b
         if event.keysym.raw() == 0xff1b {
             self.exit = true;
+            return;
+        }
+
+        if let Some(form) = &mut self.form {
+            let key_name = keysym_name(event.keysym.raw());
+            let utf8 = event.utf8.clone();
+            let ev = WidgetEvent::KeyPress { key: key_name, utf8 };
+            let resp = form.event(&ev, Self::content_bounds(self.width, self.height));
+            if resp.consumed {
+                self.needs_redraw = true;
+                self.draw(qh);
+            }
+            if let Some(WidgetAction::ValueChanged { ref key, ref value }) = resp.action {
+                let _ = self.preview.apply_preview(key, value);
+            }
         }
     }
 
@@ -574,6 +704,9 @@ pub fn run(
         needs_redraw: true,
         first_configure: true,
         exit: false,
+        form: None,
+        form_panel_idx: usize::MAX,
+        form_content_width: 0.0,
         pointer: None,
         pointer_x: 0.0,
         pointer_y: 0.0,

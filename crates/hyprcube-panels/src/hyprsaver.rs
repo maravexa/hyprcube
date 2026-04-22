@@ -7,19 +7,14 @@ use crate::{FieldType, PanelError, PanelField, SettingsPanel};
 
 /// Settings panel for HyprSaver (screensaver / lock screen).
 pub struct HyprsaverPanel {
-    config_dir: PathBuf,
     config: Option<toml::Table>,
 }
 
 impl HyprsaverPanel {
     pub fn new() -> Self {
         let config_dir = hyprsaver_config_dir();
-        let config = if config_dir.is_dir() {
-            load_hyprsaver_config(&config_dir)
-        } else {
-            None
-        };
-        Self { config_dir, config }
+        let config = if config_dir.is_dir() { load_hyprsaver_config(&config_dir) } else { None };
+        Self { config }
     }
 }
 
@@ -64,14 +59,18 @@ impl SettingsPanel for HyprsaverPanel {
         "preferences-desktop-screensaver"
     }
 
-    fn available(&self) -> bool {
-        self.config_dir.is_dir()
-    }
-
     fn fields(&self) -> Vec<PanelField> {
         let table = match &self.config {
             Some(t) => t,
-            None => return Vec::new(),
+            None => {
+                return vec![PanelField {
+                    key: "_not_installed".into(),
+                    label: "HyprSaver is not installed".into(),
+                    description: String::new(),
+                    field_type: FieldType::Text,
+                    current_value: String::new(),
+                }];
+            }
         };
 
         vec![
@@ -144,13 +143,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unavailable_when_dir_missing() {
-        let panel = HyprsaverPanel {
-            config_dir: PathBuf::from("/nonexistent/hyprsaver"),
-            config: None,
-        };
-        assert!(!panel.available());
-        assert!(panel.fields().is_empty());
+    fn not_installed_message_when_dir_missing() {
+        let panel = HyprsaverPanel { config: None };
+        let fields = panel.fields();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].key, "_not_installed");
     }
 
     #[test]
@@ -158,15 +155,9 @@ mod tests {
         let mut table = toml::Table::new();
         table.insert("timeout".into(), toml::Value::String("300".into()));
         table.insert("lock_on_sleep".into(), toml::Value::String("true".into()));
-        table.insert(
-            "background".into(),
-            toml::Value::String("#000000".into()),
-        );
+        table.insert("background".into(), toml::Value::String("#000000".into()));
 
-        let panel = HyprsaverPanel {
-            config_dir: PathBuf::from("/tmp"),
-            config: Some(table),
-        };
+        let panel = HyprsaverPanel { config: Some(table) };
         let fields = panel.fields();
         assert_eq!(fields.len(), 3);
 
