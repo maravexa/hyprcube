@@ -50,6 +50,7 @@ impl SettingsPanel for DisplayPanel {
     fn fields(&self) -> Vec<PanelField> {
         let mut fields = vec![PanelField {
             key: "_monitor_note".into(),
+            section: None,
             label: "Monitor Configuration".into(),
             description: "Monitor layout is read from the 'monitor' lines in hyprland.conf. \
                           A drag-and-drop editor will be available in a future release."
@@ -61,6 +62,7 @@ impl SettingsPanel for DisplayPanel {
         for mon in &self.monitors {
             fields.push(PanelField {
                 key: format!("monitor.{}", mon.name),
+                section: None,
                 label: mon.name.clone(),
                 description: mon.description.clone(),
                 field_type: FieldType::Text,

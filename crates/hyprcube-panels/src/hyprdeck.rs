@@ -65,6 +65,7 @@ impl SettingsPanel for HyprdeckPanel {
             None => {
                 return vec![PanelField {
                     key: "_not_installed".into(),
+                    section: None,
                     label: "HyprDeck is not installed".into(),
                     description: String::new(),
                     field_type: FieldType::Text,
@@ -76,6 +77,7 @@ impl SettingsPanel for HyprdeckPanel {
         vec![
             PanelField {
                 key: "icon_size".into(),
+                section: None,
                 label: "Icon Size".into(),
                 description: "Size of dock icons (px).".into(),
                 field_type: FieldType::Integer {
@@ -86,6 +88,7 @@ impl SettingsPanel for HyprdeckPanel {
             },
             PanelField {
                 key: "position".into(),
+                section: None,
                 label: "Position".into(),
                 description: "Dock position on screen.".into(),
                 field_type: FieldType::Choice {
@@ -100,6 +103,7 @@ impl SettingsPanel for HyprdeckPanel {
             },
             PanelField {
                 key: "auto_hide".into(),
+                section: None,
                 label: "Auto-Hide".into(),
                 description: "Automatically hide the dock when not in use.".into(),
                 field_type: FieldType::Boolean,

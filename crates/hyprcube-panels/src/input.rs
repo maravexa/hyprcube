@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use hyprcube_core::layout::Rect;
 use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
 use hyprcube_hyprconf::HyprlandConfig;
@@ -7,7 +9,7 @@ use crate::{FieldType, PanelError, PanelField, SettingsPanel};
 /// Settings panel for Hyprland input configuration (keyboard, mouse,
 /// touchpad).
 pub struct InputPanel {
-    config: HyprlandConfig,
+    config: Arc<Mutex<HyprlandConfig>>,
 }
 
 impl InputPanel {
@@ -16,11 +18,19 @@ impl InputPanel {
             tracing::warn!("failed to load hyprland.conf for input panel: {e}");
             HyprlandConfig { items: Vec::new() }
         });
+        Self::with_arc(Arc::new(Mutex::new(config)))
+    }
+
+    /// Construct from a shared config Arc (used by the registry so that
+    /// HyprlandPanel and InputPanel operate on the same in-memory config).
+    pub fn with_arc(config: Arc<Mutex<HyprlandConfig>>) -> Self {
         Self { config }
     }
 
     fn input_get(&self, key: &str) -> String {
         self.config
+            .lock()
+            .unwrap()
             .get_in_section("input", key)
             .unwrap_or("")
             .to_string()
@@ -28,6 +38,8 @@ impl InputPanel {
 
     fn touchpad_get(&self, key: &str) -> String {
         self.config
+            .lock()
+            .unwrap()
             .get_in_nested(&["input", "touchpad"], key)
             .unwrap_or("")
             .to_string()
@@ -53,6 +65,7 @@ impl SettingsPanel for InputPanel {
         vec![
             PanelField {
                 key: "kb_layout".into(),
+                section: Some("input".into()),
                 label: "Keyboard Layout".into(),
                 description: "XKB keyboard layout (e.g. us, de, fr).".into(),
                 field_type: FieldType::Text,
@@ -60,6 +73,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "follow_mouse".into(),
+                section: Some("input".into()),
                 label: "Follow Mouse".into(),
                 description: "Focus behavior when the cursor enters a window.".into(),
                 field_type: FieldType::Choice {
@@ -69,6 +83,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "sensitivity".into(),
+                section: Some("input".into()),
                 label: "Sensitivity".into(),
                 description: "Pointer sensitivity (-1.0 to 1.0).".into(),
                 field_type: FieldType::Float {
@@ -79,6 +94,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "accel_profile".into(),
+                section: Some("input".into()),
                 label: "Acceleration Profile".into(),
                 description: "Pointer acceleration profile.".into(),
                 field_type: FieldType::Choice {
@@ -88,6 +104,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "scroll_method".into(),
+                section: Some("input".into()),
                 label: "Scroll Method".into(),
                 description: "Scroll input method.".into(),
                 field_type: FieldType::Choice {
@@ -102,6 +119,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "touchpad.natural_scroll".into(),
+                section: Some("input:touchpad".into()),
                 label: "Natural Scroll".into(),
                 description: "Invert touchpad scroll direction.".into(),
                 field_type: FieldType::Boolean,
@@ -109,6 +127,7 @@ impl SettingsPanel for InputPanel {
             },
             PanelField {
                 key: "touchpad.tap-to-click".into(),
+                section: Some("input:touchpad".into()),
                 label: "Tap to Click".into(),
                 description: "Enable tap-to-click on the touchpad.".into(),
                 field_type: FieldType::Boolean,
@@ -120,22 +139,29 @@ impl SettingsPanel for InputPanel {
     fn set_value(&mut self, key: &str, value: &str) -> Result<String, PanelError> {
         match key {
             "kb_layout" | "follow_mouse" | "sensitivity" | "accel_profile" | "scroll_method" => {
-                let old = self.input_get(key);
-                self.config.set_in_section("input", key, value);
+                let mut cfg = self.config.lock().unwrap();
+                let old = cfg.get_in_section("input", key).unwrap_or("").to_string();
+                cfg.set_in_section("input", key, value);
                 Ok(old)
             }
             "touchpad.natural_scroll" => {
                 let real_key = "natural_scroll";
-                let old = self.touchpad_get(real_key);
-                self.config
-                    .set_in_nested(&["input", "touchpad"], real_key, value);
+                let mut cfg = self.config.lock().unwrap();
+                let old = cfg
+                    .get_in_nested(&["input", "touchpad"], real_key)
+                    .unwrap_or("")
+                    .to_string();
+                cfg.set_in_nested(&["input", "touchpad"], real_key, value);
                 Ok(old)
             }
             "touchpad.tap-to-click" => {
                 let real_key = "tap-to-click";
-                let old = self.touchpad_get(real_key);
-                self.config
-                    .set_in_nested(&["input", "touchpad"], real_key, value);
+                let mut cfg = self.config.lock().unwrap();
+                let old = cfg
+                    .get_in_nested(&["input", "touchpad"], real_key)
+                    .unwrap_or("")
+                    .to_string();
+                cfg.set_in_nested(&["input", "touchpad"], real_key, value);
                 Ok(old)
             }
             _ => Err(PanelError::UnknownKey(key.to_string())),
@@ -155,7 +181,6 @@ impl SettingsPanel for InputPanel {
         _pixmap: &mut tiny_skia::PixmapMut<'_>,
         _ctx: &mut hyprcube_core::text::RenderContext<'_>,
     ) {
-        // Will be wired up to the widget system later.
     }
 
     fn event(&mut self, _event: &Event, _bounds: Rect) -> EventResponse {
@@ -169,7 +194,7 @@ mod tests {
 
     fn panel_with_config(input: &str) -> InputPanel {
         let config = HyprlandConfig::parse(input).unwrap();
-        InputPanel { config }
+        InputPanel { config: Arc::new(Mutex::new(config)) }
     }
 
     #[test]
@@ -182,12 +207,14 @@ mod tests {
 
         let kb = fields.iter().find(|f| f.key == "kb_layout").unwrap();
         assert_eq!(kb.current_value, "us");
+        assert_eq!(kb.section.as_deref(), Some("input"));
 
         let ns = fields
             .iter()
             .find(|f| f.key == "touchpad.natural_scroll")
             .unwrap();
         assert_eq!(ns.current_value, "true");
+        assert_eq!(ns.section.as_deref(), Some("input:touchpad"));
     }
 
     #[test]

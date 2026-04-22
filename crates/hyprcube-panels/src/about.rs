@@ -74,6 +74,7 @@ impl SettingsPanel for AboutPanel {
             .into_iter()
             .map(|(label, value)| PanelField {
                 key: label.to_lowercase().replace(' ', "_"),
+                section: None,
                 label,
                 description: String::new(),
                 field_type: crate::FieldType::Text,

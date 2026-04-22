@@ -1,4 +1,5 @@
-use hyprcube_core::ipc::HyprlandIpc;
+use std::sync::{Arc, Mutex};
+
 use hyprcube_core::layout::Rect;
 use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
 use hyprcube_hyprconf::HyprlandConfig;
@@ -7,47 +8,39 @@ use crate::{FieldType, PanelError, PanelField, SettingsPanel};
 
 /// Settings panel for core Hyprland general options.
 pub struct HyprlandPanel {
-    config: HyprlandConfig,
-    ipc: Option<HyprlandIpc>,
+    config: Arc<Mutex<HyprlandConfig>>,
 }
 
 impl HyprlandPanel {
-    /// Create a new panel, loading `hyprland.conf` from the default location.
+    /// Create a new panel loading `hyprland.conf` from the default location.
     /// Falls back to an empty config if the file cannot be read.
     pub fn new() -> Self {
         let config = HyprlandConfig::load_default().unwrap_or_else(|e| {
             tracing::warn!("failed to load hyprland.conf, using empty config: {e}");
             HyprlandConfig { items: Vec::new() }
         });
-
-        let ipc = HyprlandIpc::connect().ok();
-        if ipc.is_none() {
-            tracing::warn!("hyprland IPC not available — live preview disabled");
-        }
-
-        Self { config, ipc }
+        Self::with_arc(Arc::new(Mutex::new(config)))
     }
 
-    /// Borrow the underlying config.
-    pub fn config(&self) -> &HyprlandConfig {
-        &self.config
-    }
-
-    /// Borrow the IPC handle, if connected.
-    pub fn ipc(&self) -> Option<&HyprlandIpc> {
-        self.ipc.as_ref()
+    /// Construct from a shared config Arc (used by the registry so that
+    /// HyprlandPanel and InputPanel operate on the same in-memory config).
+    pub fn with_arc(config: Arc<Mutex<HyprlandConfig>>) -> Self {
+        Self { config }
     }
 
     fn general_get(&self, key: &str) -> String {
         self.config
+            .lock()
+            .unwrap()
             .get_in_section("general", key)
             .unwrap_or("")
             .to_string()
     }
 
     fn general_set(&mut self, key: &str, value: &str) -> String {
-        let old = self.general_get(key);
-        self.config.set_in_section("general", key, value);
+        let mut cfg = self.config.lock().unwrap();
+        let old = cfg.get_in_section("general", key).unwrap_or("").to_string();
+        cfg.set_in_section("general", key, value);
         old
     }
 }
@@ -71,6 +64,7 @@ impl SettingsPanel for HyprlandPanel {
         vec![
             PanelField {
                 key: "gaps_in".into(),
+                section: Some("general".into()),
                 label: "Inner Gaps".into(),
                 description: "Gap size between tiled windows (px).".into(),
                 field_type: FieldType::Integer {
@@ -81,6 +75,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "gaps_out".into(),
+                section: Some("general".into()),
                 label: "Outer Gaps".into(),
                 description: "Gap size between windows and monitor edges (px).".into(),
                 field_type: FieldType::Integer {
@@ -91,6 +86,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "border_size".into(),
+                section: Some("general".into()),
                 label: "Border Size".into(),
                 description: "Window border thickness (px).".into(),
                 field_type: FieldType::Integer {
@@ -101,6 +97,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "col.active_border".into(),
+                section: Some("general".into()),
                 label: "Active Border Color".into(),
                 description: "Border color of the focused window.".into(),
                 field_type: FieldType::Color,
@@ -108,6 +105,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "col.inactive_border".into(),
+                section: Some("general".into()),
                 label: "Inactive Border Color".into(),
                 description: "Border color of unfocused windows.".into(),
                 field_type: FieldType::Color,
@@ -115,6 +113,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "layout".into(),
+                section: Some("general".into()),
                 label: "Layout".into(),
                 description: "Tiling layout algorithm.".into(),
                 field_type: FieldType::Choice {
@@ -124,6 +123,7 @@ impl SettingsPanel for HyprlandPanel {
             },
             PanelField {
                 key: "resize_on_border".into(),
+                section: Some("general".into()),
                 label: "Resize on Border".into(),
                 description: "Allow resizing windows by dragging their border.".into(),
                 field_type: FieldType::Boolean,
@@ -155,7 +155,6 @@ impl SettingsPanel for HyprlandPanel {
         _pixmap: &mut tiny_skia::PixmapMut<'_>,
         _ctx: &mut hyprcube_core::text::RenderContext<'_>,
     ) {
-        // Will be wired up to the widget system later.
     }
 
     fn event(&mut self, _event: &Event, _bounds: Rect) -> EventResponse {
@@ -169,7 +168,7 @@ mod tests {
 
     fn panel_with_config(input: &str) -> HyprlandPanel {
         let config = HyprlandConfig::parse(input).unwrap();
-        HyprlandPanel { config, ipc: None }
+        HyprlandPanel { config: Arc::new(Mutex::new(config)) }
     }
 
     #[test]
@@ -185,6 +184,15 @@ mod tests {
 
         let layout = fields.iter().find(|f| f.key == "layout").unwrap();
         assert_eq!(layout.current_value, "dwindle");
+    }
+
+    #[test]
+    fn fields_have_section_tags() {
+        let panel = panel_with_config("general {\n    gaps_in = 5\n}");
+        let fields = panel.fields();
+        for f in &fields {
+            assert_eq!(f.section.as_deref(), Some("general"), "field {} missing section", f.key);
+        }
     }
 
     #[test]
