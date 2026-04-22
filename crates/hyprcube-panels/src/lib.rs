@@ -6,6 +6,7 @@ pub mod hyprdeck;
 pub mod hyprland;
 pub mod hyprsaver;
 pub mod input;
+pub mod keymap;
 
 use hyprcube_core::layout::Rect;
 use hyprcube_core::text::RenderContext;
@@ -47,6 +48,9 @@ pub enum FieldType {
 #[derive(Debug, Clone)]
 pub struct PanelField {
     pub key: String,
+    /// Hyprland config section for IPC keyword routing, e.g. `"general"` or
+    /// `"input:touchpad"`.  `None` for fields that don't map to Hyprland IPC.
+    pub section: Option<String>,
     pub label: String,
     pub description: String,
     pub field_type: FieldType,

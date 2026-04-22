@@ -17,7 +17,7 @@ pub struct PreviewEngine {
 }
 
 impl PreviewEngine {
-    /// Try to connect to Hyprland IPC. Continues without it if unavailable.
+    /// Try to connect to Hyprland IPC.  Continues without it if unavailable.
     pub fn new() -> Self {
         let ipc = match HyprlandIpc::connect() {
             Ok(ipc) => {
@@ -30,64 +30,60 @@ impl PreviewEngine {
             }
         };
 
-        let runtime = tokio::runtime::Runtime::new()
-            .expect("failed to create tokio runtime");
+        let runtime =
+            tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
-        Self {
-            ipc,
-            undo_stack: UndoStack::new(),
-            runtime,
-        }
+        Self { ipc, undo_stack: UndoStack::new(), runtime }
     }
 
-    /// Set a Hyprland keyword via IPC and push the old value onto the undo
-    /// stack.
-    pub fn apply_preview(&mut self, key: &str, value: &str) -> Result<(), PreviewError> {
-        let ipc = self.ipc.as_ref().ok_or(PreviewError::NotConnected)?;
+    /// Apply a live preview via IPC and push the old value onto the undo stack.
+    ///
+    /// - `section` — Hyprland config section, e.g. `Some("general")` or
+    ///   `Some("input:touchpad")`.  Combined with `key` to form the IPC keyword
+    ///   path (`section:key`).  Pass `None` for palette / non-Hyprland fields.
+    /// - `old_value` — the previous value returned by `panel.set_value()`.
+    ///
+    /// IPC errors are logged but do not propagate; a missing IPC connection is
+    /// silently skipped so the app remains usable outside Hyprland.
+    pub fn apply_preview(
+        &mut self,
+        section: Option<&str>,
+        key: &str,
+        value: &str,
+        old_value: &str,
+    ) {
+        let ipc_key = match section {
+            Some(s) => format!("{s}:{key}"),
+            None => return, // No IPC keyword for palette/non-Hyprland fields.
+        };
 
-        // Query the current value so we can undo later.
-        let old_value = self.runtime.block_on(async {
-            match ipc.get_option(key).await {
-                Ok(json) => {
-                    // Hyprland returns option data with str/int/float fields.
-                    if let Some(s) = json.get("str").and_then(|v| v.as_str()) {
-                        s.to_string()
-                    } else if let Some(i) = json.get("int").and_then(|v| v.as_i64()) {
-                        i.to_string()
-                    } else if let Some(f) = json.get("float").and_then(|v| v.as_f64()) {
-                        f.to_string()
-                    } else {
-                        String::new()
-                    }
-                }
-                Err(_) => String::new(),
+        if let Some(ipc) = &self.ipc {
+            if let Err(e) = self.runtime.block_on(ipc.set_keyword(&ipc_key, value)) {
+                tracing::warn!("IPC preview failed for {ipc_key}={value}: {e}");
             }
-        });
-
-        // Apply the new value.
-        self.runtime.block_on(ipc.set_keyword(key, value))?;
+        }
 
         self.undo_stack.push(UndoEntry {
-            key: key.to_string(),
-            old_value,
+            key: ipc_key,
+            old_value: old_value.to_string(),
         });
-
-        Ok(())
     }
 
-    /// Revert all previewed changes by rolling back the undo stack via IPC.
+    /// Revert all previewed changes by replaying the undo stack in reverse
+    /// via IPC.
     pub fn revert_all(&mut self) -> Result<(), PreviewError> {
-        let ipc = self.ipc.as_ref().ok_or(PreviewError::NotConnected)?;
-
-        // Collect entries first to avoid borrow conflict.
         let entries: Vec<_> = self
             .undo_stack
             .rollback_iter()
             .map(|e| (e.key.clone(), e.old_value.clone()))
             .collect();
 
-        for (key, old_value) in entries {
-            self.runtime.block_on(ipc.set_keyword(&key, &old_value))?;
+        if let Some(ipc) = &self.ipc {
+            for (key, old_value) in &entries {
+                if let Err(e) = self.runtime.block_on(ipc.set_keyword(key, old_value)) {
+                    tracing::warn!("IPC revert failed for {key}: {e}");
+                }
+            }
         }
 
         self.undo_stack.clear();
@@ -102,5 +98,33 @@ impl PreviewEngine {
     /// Returns `true` if there are un-committed preview changes.
     pub fn is_dirty(&self) -> bool {
         self.undo_stack.is_dirty()
+    }
+
+    /// Tell Hyprland to reload its config from disk.
+    pub fn reload_hyprland(&mut self) -> Result<(), PreviewError> {
+        let ipc = self.ipc.as_ref().ok_or(PreviewError::NotConnected)?;
+        self.runtime.block_on(ipc.reload())?;
+        Ok(())
+    }
+
+    /// Query Hyprland for config parse errors.  Returns the first error string
+    /// if any exist, or `None` on success / no IPC.
+    pub fn check_config_errors(&mut self) -> Option<String> {
+        let ipc = self.ipc.as_ref()?;
+        match self.runtime.block_on(ipc.config_errors()) {
+            Ok(json) => {
+                if let Some(arr) = json.as_array() {
+                    if !arr.is_empty() {
+                        let msgs: Vec<String> = arr
+                            .iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect();
+                        return Some(msgs.join("; "));
+                    }
+                }
+                None
+            }
+            Err(_) => None,
+        }
     }
 }

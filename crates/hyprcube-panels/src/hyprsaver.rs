@@ -65,6 +65,7 @@ impl SettingsPanel for HyprsaverPanel {
             None => {
                 return vec![PanelField {
                     key: "_not_installed".into(),
+                    section: None,
                     label: "HyprSaver is not installed".into(),
                     description: String::new(),
                     field_type: FieldType::Text,
@@ -76,6 +77,7 @@ impl SettingsPanel for HyprsaverPanel {
         vec![
             PanelField {
                 key: "timeout".into(),
+                section: None,
                 label: "Timeout".into(),
                 description: "Seconds of inactivity before the screensaver activates.".into(),
                 field_type: FieldType::Integer {
@@ -86,6 +88,7 @@ impl SettingsPanel for HyprsaverPanel {
             },
             PanelField {
                 key: "lock_on_sleep".into(),
+                section: None,
                 label: "Lock on Sleep".into(),
                 description: "Lock the screen when the system suspends.".into(),
                 field_type: FieldType::Boolean,
@@ -93,6 +96,7 @@ impl SettingsPanel for HyprsaverPanel {
             },
             PanelField {
                 key: "background".into(),
+                section: None,
                 label: "Background".into(),
                 description: "Background color or image path for the lock screen.".into(),
                 field_type: FieldType::Text,
