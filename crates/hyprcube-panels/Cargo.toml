@@ -9,5 +9,6 @@ hyprcube-hyprconf = { workspace = true }
 tiny-skia = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
