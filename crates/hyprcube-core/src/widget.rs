@@ -88,12 +88,41 @@ pub trait Widget {
     fn measure(&self, constraints: Constraints) -> Size;
 
     /// Paint the widget into the given pixmap at the specified bounds.
+    /// For widgets with overlay content (e.g. open dropdowns), only paint the
+    /// base/collapsed state here. The overlay is painted in `paint_overlay`.
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>);
 
     /// Handle an input event. The default implementation ignores all events.
     fn event(&mut self, _event: &Event, _bounds: &Rect) -> EventResponse {
         EventResponse::ignored()
     }
+
+    /// Returns true when this widget has overlay content (e.g. an open dropdown
+    /// option list) that must be painted above all other widgets.
+    fn has_overlay(&self) -> bool {
+        false
+    }
+
+    /// Height of the overlay content in logical pixels. Used to compute hit
+    /// bounds for click-outside dismiss. Returns 0.0 if no overlay.
+    fn overlay_height(&self) -> f32 {
+        0.0
+    }
+
+    /// Paint the overlay content (e.g. dropdown option list) that must render
+    /// above all other widgets. Called after all base widgets are painted.
+    /// `bounds` is the same base widget bounds passed to `paint`.
+    fn paint_overlay(
+        &self,
+        _pixmap: &mut PixmapMut<'_>,
+        _bounds: Rect,
+        _ctx: &mut RenderContext<'_>,
+    ) {
+    }
+
+    /// Close/collapse any open overlay state. Called when the user clicks
+    /// outside this widget.
+    fn dismiss_overlay(&mut self) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -358,56 +387,93 @@ impl Dropdown {
 
 impl Widget for Dropdown {
     fn measure(&self, constraints: Constraints) -> Size {
-        let h = if self.open {
-            Self::CLOSED_H + self.options.len() as f32 * Self::OPTION_H
-        } else {
-            Self::CLOSED_H
-        };
         let width = 200.0_f32.clamp(constraints.min_width, constraints.max_width);
-        let height = h.clamp(constraints.min_height, constraints.max_height);
+        let height = Self::CLOSED_H.clamp(constraints.min_height, constraints.max_height);
         Size { width, height }
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
         let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
         let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
+        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let font_size = ctx.palette.fonts.size as f32;
+
+        // Closed header box (always painted here; option list is in paint_overlay)
+        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, Self::CLOSED_H, 6.0, surface);
+
+        let selected_text = self.options.get(self.selected).map(|s| s.as_str()).unwrap_or("");
+        let text_y = bounds.y + (Self::CLOSED_H - font_size * 1.3) / 2.0;
+        ctx.text.draw_text(pixmap, selected_text, bounds.x + 8.0, text_y, font_size, fg, bounds.width - 32.0);
+
+        let chevron_cx = bounds.x + bounds.width - 14.0;
+        let chevron_cy = bounds.y + Self::CLOSED_H / 2.0;
+        draw_chevron(pixmap, chevron_cx, chevron_cy, overlay);
+    }
+
+    fn paint_overlay(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
+        if !self.open {
+            return;
+        }
+        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
+        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
         let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
         let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
         let font_size = ctx.palette.fonts.size as f32;
 
-        // Closed header box
-        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, Self::CLOSED_H, 6.0, surface);
+        let list_y = bounds.y + Self::CLOSED_H;
+        let list_h = self.options.len() as f32 * Self::OPTION_H;
 
-        // Selected text
-        let selected_text = self.options.get(self.selected).map(|s| s.as_str()).unwrap_or("");
-        let text_y = bounds.y + (Self::CLOSED_H - font_size * 1.3) / 2.0;
-        ctx.text.draw_text(
+        // Drop shadow (offset dark rect behind the list)
+        fill_rounded_rect(
             pixmap,
-            selected_text,
-            bounds.x + 8.0,
-            text_y,
-            font_size,
-            fg,
-            bounds.width - 32.0,
+            bounds.x + 2.0, list_y + 2.0,
+            bounds.width, list_h,
+            6.0,
+            Color::new(0.0, 0.0, 0.0, 0.3),
         );
 
-        // Chevron arrow
-        let chevron_cx = bounds.x + bounds.width - 14.0;
-        let chevron_cy = bounds.y + Self::CLOSED_H / 2.0;
-        draw_chevron(pixmap, chevron_cx, chevron_cy, overlay);
+        // 1px border using overlay color
+        fill_rounded_rect(pixmap, bounds.x - 1.0, list_y - 1.0, bounds.width + 2.0, list_h + 2.0, 7.0, overlay);
 
-        if self.open {
-            let dropdown_y = bounds.y + Self::CLOSED_H;
-            let list_h = self.options.len() as f32 * Self::OPTION_H;
-            fill_rounded_rect(pixmap, bounds.x, dropdown_y, bounds.width, list_h, 6.0, surface);
+        // Solid background
+        fill_rounded_rect(pixmap, bounds.x, list_y, bounds.width, list_h, 6.0, surface);
 
-            for (i, option) in self.options.iter().enumerate() {
-                let oy = dropdown_y + i as f32 * Self::OPTION_H;
-                let text_oy = oy + (Self::OPTION_H - font_size * 1.3) / 2.0;
-                let color = if i == self.selected { accent } else { fg };
-                ctx.text.draw_text(pixmap, option, bounds.x + 8.0, text_oy, font_size, color, bounds.width - 16.0);
+        for (i, option) in self.options.iter().enumerate() {
+            let oy = list_y + i as f32 * Self::OPTION_H;
+            let is_selected = i == self.selected;
+
+            if is_selected {
+                // 40% accent background
+                fill_rounded_rect(
+                    pixmap, bounds.x, oy, bounds.width, Self::OPTION_H, 0.0,
+                    Color::new(accent.r, accent.g, accent.b, 0.4),
+                );
+                // Selection dot
+                fill_rounded_rect(
+                    pixmap,
+                    bounds.x + 6.0, oy + Self::OPTION_H / 2.0 - 3.0,
+                    6.0, 6.0, 3.0,
+                    accent,
+                );
             }
+
+            let text_oy = oy + (Self::OPTION_H - font_size * 1.3) / 2.0;
+            let text_x = bounds.x + if is_selected { 20.0 } else { 8.0 };
+            let color = if is_selected { accent } else { fg };
+            ctx.text.draw_text(pixmap, option, text_x, text_oy, font_size, color, bounds.width - 24.0);
         }
+    }
+
+    fn has_overlay(&self) -> bool {
+        self.open
+    }
+
+    fn overlay_height(&self) -> f32 {
+        self.options.len() as f32 * Self::OPTION_H
+    }
+
+    fn dismiss_overlay(&mut self) {
+        self.open = false;
     }
 
     fn event(&mut self, event: &Event, bounds: &Rect) -> EventResponse {
@@ -423,15 +489,10 @@ impl Widget for Dropdown {
                 return EventResponse { consumed: true, action: None };
             }
             if self.open {
-                let dropdown_y = bounds.y + Self::CLOSED_H;
+                let list_y = bounds.y + Self::CLOSED_H;
                 for (i, _) in self.options.iter().enumerate() {
-                    let oy = dropdown_y + i as f32 * Self::OPTION_H;
-                    let opt_rect = Rect {
-                        x: bounds.x,
-                        y: oy,
-                        width: bounds.width,
-                        height: Self::OPTION_H,
-                    };
+                    let oy = list_y + i as f32 * Self::OPTION_H;
+                    let opt_rect = Rect { x: bounds.x, y: oy, width: bounds.width, height: Self::OPTION_H };
                     if opt_rect.contains(*x, *y) {
                         self.selected = i;
                         self.open = false;
@@ -445,6 +506,371 @@ impl Widget for Dropdown {
                     }
                 }
             }
+        }
+        EventResponse::ignored()
+    }
+}
+
+/// A searchable dropdown with type-to-filter and an "Other..." manual entry.
+///
+/// `options` is a list of `(value, display_label)` pairs. The value stored and
+/// emitted in `ValueChanged` is always the first element of the pair.
+pub struct SearchableDropdown {
+    pub options: Vec<(String, String)>,
+    pub selected_value: String,
+    pub key: String,
+    pub open: bool,
+    pub filter_text: String,
+    pub filtered_indices: Vec<usize>,
+    pub custom_mode: bool,
+    pub custom_value: String,
+    pub custom_cursor: usize,
+}
+
+impl SearchableDropdown {
+    pub fn new(
+        key: impl Into<String>,
+        options: Vec<(String, String)>,
+        initial_value: impl Into<String>,
+    ) -> Self {
+        let selected_value = initial_value.into();
+        let n = options.len();
+        let mut sd = Self {
+            options,
+            selected_value,
+            key: key.into(),
+            open: false,
+            filter_text: String::new(),
+            filtered_indices: (0..n).collect(),
+            custom_mode: false,
+            custom_value: String::new(),
+            custom_cursor: 0,
+        };
+        sd.rebuild_filter();
+        sd
+    }
+
+    fn display_label(&self) -> &str {
+        for (value, label) in &self.options {
+            if value == &self.selected_value {
+                return label.as_str();
+            }
+        }
+        self.selected_value.as_str()
+    }
+
+    fn rebuild_filter(&mut self) {
+        let filter = self.filter_text.to_lowercase();
+        self.filtered_indices = self
+            .options
+            .iter()
+            .enumerate()
+            .filter(|(_, (val, label))| {
+                filter.is_empty()
+                    || val.to_lowercase().contains(&filter)
+                    || label.to_lowercase().contains(&filter)
+            })
+            .map(|(i, _)| i)
+            .collect();
+    }
+
+    const CLOSED_H: f32 = 32.0;
+    const FILTER_H: f32 = 32.0;
+    const OPTION_H: f32 = 28.0;
+    const MAX_VISIBLE: usize = 8;
+}
+
+impl Widget for SearchableDropdown {
+    fn measure(&self, constraints: Constraints) -> Size {
+        let width = 200.0_f32.clamp(constraints.min_width, constraints.max_width);
+        let height = Self::CLOSED_H.clamp(constraints.min_height, constraints.max_height);
+        Size { width, height }
+    }
+
+    fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
+        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
+        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
+        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let font_size = ctx.palette.fonts.size as f32;
+
+        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, Self::CLOSED_H, 6.0, surface);
+
+        let label = self.display_label();
+        let text_y = bounds.y + (Self::CLOSED_H - font_size * 1.3) / 2.0;
+        ctx.text.draw_text(pixmap, label, bounds.x + 8.0, text_y, font_size, fg, bounds.width - 32.0);
+
+        let chevron_cx = bounds.x + bounds.width - 14.0;
+        let chevron_cy = bounds.y + Self::CLOSED_H / 2.0;
+        draw_chevron(pixmap, chevron_cx, chevron_cy, overlay);
+    }
+
+    fn paint_overlay(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
+        if !self.open {
+            return;
+        }
+        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
+        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
+        let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
+        let overlay_color = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let font_size = ctx.palette.fonts.size as f32;
+
+        let visible_count = self.filtered_indices.len().min(Self::MAX_VISIBLE);
+        let panel_y = bounds.y + Self::CLOSED_H;
+        // +1 row for "Other..." entry
+        let panel_h = Self::FILTER_H + (visible_count + 1) as f32 * Self::OPTION_H;
+
+        // Drop shadow
+        fill_rounded_rect(
+            pixmap,
+            bounds.x + 2.0, panel_y + 2.0,
+            bounds.width, panel_h,
+            6.0,
+            Color::new(0.0, 0.0, 0.0, 0.3),
+        );
+
+        // Border
+        fill_rounded_rect(pixmap, bounds.x - 1.0, panel_y - 1.0, bounds.width + 2.0, panel_h + 2.0, 7.0, overlay_color);
+
+        // Background
+        fill_rounded_rect(pixmap, bounds.x, panel_y, bounds.width, panel_h, 6.0, surface);
+
+        // Filter input row
+        let filter_border = if !self.custom_mode { accent } else { overlay_color };
+        fill_rounded_rect(
+            pixmap,
+            bounds.x + 4.0, panel_y + 4.0,
+            bounds.width - 8.0, Self::FILTER_H - 8.0,
+            4.0, filter_border,
+        );
+        fill_rounded_rect(
+            pixmap,
+            bounds.x + 5.0, panel_y + 5.0,
+            bounds.width - 10.0, Self::FILTER_H - 10.0,
+            3.0, surface,
+        );
+        let (filter_display, filter_fg) = if self.filter_text.is_empty() {
+            ("Type to filter...", overlay_color)
+        } else {
+            (self.filter_text.as_str(), fg)
+        };
+        let filter_y = panel_y + (Self::FILTER_H - font_size * 1.3) / 2.0;
+        ctx.text.draw_text(
+            pixmap, filter_display,
+            bounds.x + 12.0, filter_y,
+            font_size, filter_fg,
+            bounds.width - 24.0,
+        );
+
+        // Option rows
+        let opts_start_y = panel_y + Self::FILTER_H;
+        for (slot, &idx) in self.filtered_indices.iter().take(Self::MAX_VISIBLE).enumerate() {
+            let (value, label) = &self.options[idx];
+            let oy = opts_start_y + slot as f32 * Self::OPTION_H;
+            let is_selected = *value == self.selected_value;
+
+            if is_selected {
+                fill_rounded_rect(
+                    pixmap, bounds.x, oy, bounds.width, Self::OPTION_H, 0.0,
+                    Color::new(accent.r, accent.g, accent.b, 0.4),
+                );
+                fill_rounded_rect(
+                    pixmap,
+                    bounds.x + 6.0, oy + Self::OPTION_H / 2.0 - 3.0,
+                    6.0, 6.0, 3.0,
+                    accent,
+                );
+            }
+
+            let text_oy = oy + (Self::OPTION_H - font_size * 1.3) / 2.0;
+            let text_x = bounds.x + if is_selected { 20.0 } else { 8.0 };
+            let color = if is_selected { accent } else { fg };
+            ctx.text.draw_text(pixmap, label, text_x, text_oy, font_size, color, bounds.width - 24.0);
+        }
+
+        // "Other..." row
+        let other_slot = visible_count;
+        let other_y = opts_start_y + other_slot as f32 * Self::OPTION_H;
+        if self.custom_mode {
+            fill_rounded_rect(
+                pixmap, bounds.x, other_y, bounds.width, Self::OPTION_H, 0.0,
+                Color::new(0.0, 0.0, 0.0, 0.15),
+            );
+            let text_oy = other_y + (Self::OPTION_H - font_size * 1.3) / 2.0;
+            ctx.text.draw_text(
+                pixmap, &self.custom_value,
+                bounds.x + 8.0, text_oy,
+                font_size, fg,
+                bounds.width - 24.0,
+            );
+        } else {
+            let text_oy = other_y + (Self::OPTION_H - font_size * 1.3) / 2.0;
+            ctx.text.draw_text(
+                pixmap, "Other...",
+                bounds.x + 8.0, text_oy,
+                font_size, overlay_color,
+                bounds.width - 24.0,
+            );
+        }
+    }
+
+    fn has_overlay(&self) -> bool {
+        self.open
+    }
+
+    fn overlay_height(&self) -> f32 {
+        if self.open {
+            let visible_count = self.filtered_indices.len().min(Self::MAX_VISIBLE);
+            Self::FILTER_H + (visible_count + 1) as f32 * Self::OPTION_H
+        } else {
+            0.0
+        }
+    }
+
+    fn dismiss_overlay(&mut self) {
+        self.open = false;
+        self.filter_text.clear();
+        self.custom_mode = false;
+        self.rebuild_filter();
+    }
+
+    fn event(&mut self, event: &Event, bounds: &Rect) -> EventResponse {
+        match event {
+            Event::PointerUp { x, y } => {
+                // Header click: toggle open/closed
+                let header = Rect { x: bounds.x, y: bounds.y, width: bounds.width, height: Self::CLOSED_H };
+                if header.contains(*x, *y) {
+                    if self.open {
+                        self.dismiss_overlay();
+                    } else {
+                        self.open = true;
+                    }
+                    return EventResponse { consumed: true, action: None };
+                }
+
+                if self.open {
+                    let panel_y = bounds.y + Self::CLOSED_H;
+                    let opts_start_y = panel_y + Self::FILTER_H;
+                    let visible_count = self.filtered_indices.len().min(Self::MAX_VISIBLE);
+
+                    // Option row clicks
+                    for slot in 0..visible_count {
+                        let idx = self.filtered_indices[slot];
+                        let oy = opts_start_y + slot as f32 * Self::OPTION_H;
+                        let opt_rect = Rect { x: bounds.x, y: oy, width: bounds.width, height: Self::OPTION_H };
+                        if opt_rect.contains(*x, *y) {
+                            let (value, _) = &self.options[idx];
+                            let emitted = value.clone();
+                            self.selected_value = emitted.clone();
+                            self.dismiss_overlay();
+                            return EventResponse {
+                                consumed: true,
+                                action: Some(WidgetAction::ValueChanged {
+                                    key: self.key.clone(),
+                                    value: emitted,
+                                }),
+                            };
+                        }
+                    }
+
+                    // "Other..." row click
+                    let other_y = opts_start_y + visible_count as f32 * Self::OPTION_H;
+                    let other_rect = Rect { x: bounds.x, y: other_y, width: bounds.width, height: Self::OPTION_H };
+                    if other_rect.contains(*x, *y) {
+                        if self.custom_mode {
+                            // Commit custom value
+                            let emitted = self.custom_value.clone();
+                            self.selected_value = emitted.clone();
+                            self.dismiss_overlay();
+                            return EventResponse {
+                                consumed: true,
+                                action: Some(WidgetAction::ValueChanged {
+                                    key: self.key.clone(),
+                                    value: emitted,
+                                }),
+                            };
+                        } else {
+                            self.custom_mode = true;
+                            self.custom_value = self.selected_value.clone();
+                            self.custom_cursor = self.custom_value.chars().count();
+                            return EventResponse { consumed: true, action: None };
+                        }
+                    }
+                }
+            }
+
+            Event::KeyPress { key, utf8 } if self.open => {
+                match key.as_str() {
+                    "BackSpace" => {
+                        if self.custom_mode {
+                            if self.custom_cursor > 0 {
+                                let byte_pos = self
+                                    .custom_value
+                                    .char_indices()
+                                    .nth(self.custom_cursor - 1)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(0);
+                                self.custom_value.remove(byte_pos);
+                                self.custom_cursor -= 1;
+                            }
+                        } else {
+                            self.filter_text.pop();
+                            self.rebuild_filter();
+                        }
+                        return EventResponse { consumed: true, action: None };
+                    }
+                    "Return" | "KP_Enter" => {
+                        if self.custom_mode {
+                            let emitted = self.custom_value.clone();
+                            self.selected_value = emitted.clone();
+                            self.dismiss_overlay();
+                            return EventResponse {
+                                consumed: true,
+                                action: Some(WidgetAction::ValueChanged {
+                                    key: self.key.clone(),
+                                    value: emitted,
+                                }),
+                            };
+                        } else if !self.filtered_indices.is_empty() {
+                            let idx = self.filtered_indices[0];
+                            let (value, _) = &self.options[idx];
+                            let emitted = value.clone();
+                            self.selected_value = emitted.clone();
+                            self.dismiss_overlay();
+                            return EventResponse {
+                                consumed: true,
+                                action: Some(WidgetAction::ValueChanged {
+                                    key: self.key.clone(),
+                                    value: emitted,
+                                }),
+                            };
+                        }
+                    }
+                    _ => {
+                        if let Some(s) = utf8 {
+                            for ch in s.chars() {
+                                if !ch.is_control() {
+                                    if self.custom_mode {
+                                        let byte_pos = self
+                                            .custom_value
+                                            .char_indices()
+                                            .nth(self.custom_cursor)
+                                            .map(|(i, _)| i)
+                                            .unwrap_or(self.custom_value.len());
+                                        self.custom_value.insert(byte_pos, ch);
+                                        self.custom_cursor += 1;
+                                    } else {
+                                        self.filter_text.push(ch);
+                                        self.rebuild_filter();
+                                    }
+                                }
+                            }
+                            return EventResponse { consumed: true, action: None };
+                        }
+                    }
+                }
+            }
+
+            _ => {}
         }
         EventResponse::ignored()
     }

@@ -4,8 +4,8 @@ use hyprcube_core::color::Color;
 use hyprcube_core::layout::Rect;
 use hyprcube_core::text::RenderContext;
 use hyprcube_core::widget::{
-    ColorPicker, Dropdown, Event, EventResponse, Slider, ScrollArea, TextInput, Toggle, Widget,
-    WidgetAction,
+    ColorPicker, Dropdown, Event, EventResponse, SearchableDropdown, Slider, ScrollArea,
+    TextInput, Toggle, Widget, WidgetAction,
 };
 
 use crate::{FieldType, PanelField};
@@ -59,6 +59,9 @@ impl FormLayout {
     }
 
     /// Paint the form into `pixmap` within `bounds`.
+    ///
+    /// Uses two passes so that open dropdown/picker overlays always render on
+    /// top of every other row — regardless of their position in the form.
     pub fn paint(&self, bounds: Rect, ctx: &mut RenderContext<'_>, pixmap: &mut PixmapMut<'_>) {
         let font_size = ctx.palette.fonts.size as f32;
         let fg = Color::from_hex(&ctx.palette.colors.foreground)
@@ -71,6 +74,7 @@ impl FormLayout {
         let label_max_w = bounds.width * 0.5 - 16.0;
         let desc_font_size = (font_size - 2.0).max(8.0);
 
+        // Pass 1 — base layer: labels, descriptions, widget collapsed states.
         for row in &self.rows {
             if row.y_offset + row.height < scroll_top || row.y_offset > scroll_bottom {
                 continue;
@@ -78,7 +82,6 @@ impl FormLayout {
 
             let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
 
-            // Label — left side, vertically centred in the 40px strip
             let label_y = row_y + (ROW_MAIN_H - font_size * 1.3) / 2.0;
             ctx.text.draw_text(
                 pixmap,
@@ -90,7 +93,6 @@ impl FormLayout {
                 label_max_w,
             );
 
-            // Description — below label, dimmer + smaller
             if !row.field.description.is_empty() {
                 ctx.text.draw_text(
                     pixmap,
@@ -103,19 +105,48 @@ impl FormLayout {
                 );
             }
 
-            // Widget — right side, vertically centred in the 40px strip
             let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
             let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-            let widget_bounds =
-                Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
-            row.widget.paint(pixmap, widget_bounds, ctx);
+            let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+            row.widget.paint(pixmap, wb, ctx);
         }
 
         self.scroll.paint_scrollbar(bounds, pixmap, ctx.palette);
+
+        // Pass 2 — overlay layer: expanded dropdown/picker lists on top of everything.
+        for row in &self.rows {
+            if !row.widget.has_overlay() {
+                continue;
+            }
+            if row.y_offset + row.height < scroll_top || row.y_offset > scroll_bottom {
+                continue;
+            }
+            let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
+            let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
+            let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
+            let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+            row.widget.paint_overlay(pixmap, wb, ctx);
+        }
     }
 
     /// Deliver an input event to the form.
     pub fn event(&mut self, event: &Event, bounds: Rect) -> EventResponse {
+        // Escape closes any open overlays.
+        if let Event::KeyPress { key, .. } = event {
+            if key == "Escape" {
+                let mut any_open = false;
+                for row in &mut self.rows {
+                    if row.widget.has_overlay() {
+                        row.widget.dismiss_overlay();
+                        any_open = true;
+                    }
+                }
+                if any_open {
+                    return EventResponse { consumed: true, action: None };
+                }
+            }
+        }
+
         match event {
             Event::Scroll { dy, .. } => {
                 self.scroll.scroll_by(*dy * 30.0);
@@ -125,8 +156,56 @@ impl FormLayout {
                 if !bounds.contains(*x, *y) {
                     return EventResponse::ignored();
                 }
-                let content_y = *y - bounds.y + self.scroll.scroll_offset;
 
+                let widget_w = bounds.width * 0.45;
+
+                // On PointerDown dismiss overlays whose full area (header + list)
+                // does not contain the click. This implements click-outside-to-close.
+                if matches!(event, Event::PointerDown { .. }) {
+                    for row in &mut self.rows {
+                        if !row.widget.has_overlay() {
+                            continue;
+                        }
+                        let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
+                        let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
+                        let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
+                        let full_h = 32.0 + row.widget.overlay_height();
+                        let full_wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: full_h };
+                        if !full_wb.contains(*x, *y) {
+                            row.widget.dismiss_overlay();
+                        }
+                    }
+                }
+
+                // Check if the click lands inside an open overlay and route there.
+                // This handles clicks on dropdown options that visually overlap other rows.
+                for i in 0..self.rows.len() {
+                    if !self.rows[i].widget.has_overlay() {
+                        continue;
+                    }
+                    let row_y = bounds.y + self.rows[i].y_offset - self.scroll.scroll_offset;
+                    let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
+                    let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
+                    let overlay_h = self.rows[i].widget.overlay_height();
+                    let overlay_rect = Rect {
+                        x: widget_x,
+                        y: widget_y + 32.0,
+                        width: widget_w,
+                        height: overlay_h,
+                    };
+                    if overlay_rect.contains(*x, *y) {
+                        self.focused_row = Some(i);
+                        let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                        let resp = self.rows[i].widget.event(event, &wb);
+                        if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                            self.rows[i].field.current_value = value.clone();
+                        }
+                        return resp;
+                    }
+                }
+
+                // Normal row hit-test routing.
+                let content_y = *y - bounds.y + self.scroll.scroll_offset;
                 let hit = self
                     .rows
                     .iter()
@@ -136,7 +215,6 @@ impl FormLayout {
                     self.focused_row = Some(i);
                     let row = &mut self.rows[i];
 
-                    let widget_w = bounds.width * 0.45;
                     let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
                     let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
                     let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
@@ -190,6 +268,9 @@ fn make_widget(field: &PanelField) -> Box<dyn Widget> {
         FieldType::Choice { options } => {
             let sel = options.iter().position(|o| o == &field.current_value).unwrap_or(0);
             Box::new(Dropdown::new(&field.key, options.clone(), sel))
+        }
+        FieldType::SearchableChoice { options } => {
+            Box::new(SearchableDropdown::new(&field.key, options.clone(), &field.current_value))
         }
         FieldType::Integer { min, max } => {
             let lo = min.unwrap_or(0) as f64;

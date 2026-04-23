@@ -40,6 +40,9 @@ pub enum FieldType {
     Float { min: Option<f64>, max: Option<f64> },
     Boolean,
     Choice { options: Vec<String> },
+    /// Like `Choice` but renders as a searchable dropdown with type-to-filter.
+    /// Each entry is `(value, display_label)`.
+    SearchableChoice { options: Vec<(String, String)> },
     Color,
     KeyBind,
 }
