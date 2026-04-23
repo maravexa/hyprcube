@@ -62,6 +62,8 @@ pub struct AppearancePanel {
     border_radius: Slider,
     opacity: Slider,
     scroll: ScrollArea,
+    /// Index of the color picker currently being dragged (if any).
+    dragging_picker: Option<usize>,
 }
 
 impl AppearancePanel {
@@ -110,12 +112,12 @@ impl AppearancePanel {
             ),
             opacity: Slider::new("style.opacity", pal.style.opacity, 0.0, 1.0, 0.05),
             scroll: ScrollArea::new(600.0),
+            dragging_picker: None,
         }
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────
 
-    /// Re-read the shared palette and sync all widget states from it.
     fn sync_widgets_from_palette(&mut self) {
         let pal = self.palette.lock().unwrap().clone();
         let hexes = [
@@ -138,8 +140,6 @@ impl AppearancePanel {
         self.opacity.value = pal.style.opacity;
     }
 
-    /// Load preset `idx` (0-based into builtin_presets) into the shared palette
-    /// and sync all widgets.
     fn apply_preset(&mut self, idx: usize) {
         let presets = Palette::builtin_presets();
         if let Some((_, preset)) = presets.into_iter().nth(idx) {
@@ -148,12 +148,10 @@ impl AppearancePanel {
         }
     }
 
-    /// Switch the preset dropdown to "Custom" (last entry).
     fn mark_custom(&mut self) {
         self.preset_dropdown.selected = self.preset_dropdown.options.len() - 1;
     }
 
-    /// Compute the y-offsets of every panel element in content space.
     fn compute_layout(&self) -> PanelLayout {
         let mut y = 0.0_f32;
 
@@ -222,6 +220,16 @@ impl AppearancePanel {
             content_height: y,
         }
     }
+
+    /// Compute the header-only bounds for picker `i` (32px tall, same x/width as the full picker).
+    fn picker_header_wb(&self, bounds: &Rect, screen_pick_y: f32) -> Rect {
+        Rect {
+            x: bounds.x + H_PAD,
+            y: screen_pick_y,
+            width: bounds.width - H_PAD * 2.0,
+            height: PICKER_ROW_H,
+        }
+    }
 }
 
 impl Default for AppearancePanel {
@@ -244,7 +252,6 @@ impl SettingsPanel for AppearancePanel {
     fn fields(&self) -> Vec<PanelField> {
         let pal = self.palette.lock().unwrap();
 
-        // Helper: all palette fields always exist (never None original_value).
         let pf = |key: &'static str, label: &'static str, desc: &'static str,
                    ft: FieldType, val: String| {
             PanelField {
@@ -378,11 +385,11 @@ impl SettingsPanel for AppearancePanel {
         let layout = self.compute_layout();
         let (scroll_top, scroll_bot) = self.scroll.visible_range();
 
-        // Helper closure: content_y → screen_y
         let sy = |cy: f32| bounds.y + cy - self.scroll.scroll_offset;
         let visible = |cy: f32, h: f32| cy + h >= scroll_top && cy < scroll_bot;
 
-        // ── Section: Palette ────────────────────────────────────────────────
+        // ── Pass 1: base layer ───────────────────────────────────────────────
+
         if visible(layout.palette_section_y, SECTION_H) {
             paint_section(
                 pixmap, ctx, bounds.x, sy(layout.palette_section_y),
@@ -390,7 +397,6 @@ impl SettingsPanel for AppearancePanel {
             );
         }
 
-        // ── Preset label ────────────────────────────────────────────────────
         if visible(layout.preset_label_y, LABEL_H) {
             ctx.text.draw_text(
                 pixmap, "Theme Preset",
@@ -399,7 +405,6 @@ impl SettingsPanel for AppearancePanel {
             );
         }
 
-        // ── Preset dropdown ─────────────────────────────────────────────────
         if visible(layout.preset_drop_y, layout.preset_drop_h) {
             let wb = Rect {
                 x: bounds.x + H_PAD,
@@ -410,7 +415,6 @@ impl SettingsPanel for AppearancePanel {
             self.preset_dropdown.paint(pixmap, wb, ctx);
         }
 
-        // ── Color fields ────────────────────────────────────────────────────
         for i in 0..6 {
             let (_, label) = COLOR_FIELDS[i];
 
@@ -423,17 +427,11 @@ impl SettingsPanel for AppearancePanel {
             }
 
             if visible(layout.color_pick_y[i], layout.color_pick_h[i]) {
-                let wb = Rect {
-                    x: bounds.x + H_PAD,
-                    y: sy(layout.color_pick_y[i]),
-                    width: bounds.width - H_PAD * 2.0,
-                    height: layout.color_pick_h[i],
-                };
+                let wb = self.picker_header_wb(&bounds, sy(layout.color_pick_y[i]));
                 self.color_pickers[i].paint(pixmap, wb, ctx);
             }
         }
 
-        // ── Section: Typography ─────────────────────────────────────────────
         if visible(layout.typography_y, SECTION_H) {
             paint_section(
                 pixmap, ctx, bounds.x, sy(layout.typography_y),
@@ -462,7 +460,6 @@ impl SettingsPanel for AppearancePanel {
             );
         }
 
-        // ── Section: Style ──────────────────────────────────────────────────
         if visible(layout.style_y, SECTION_H) {
             paint_section(
                 pixmap, ctx, bounds.x, sy(layout.style_y),
@@ -484,8 +481,19 @@ impl SettingsPanel for AppearancePanel {
             );
         }
 
-        // ── Scrollbar ───────────────────────────────────────────────────────
         self.scroll.paint_scrollbar(bounds, pixmap, ctx.palette);
+
+        // ── Pass 2: overlay layer — expanded color pickers on top ────────────
+        for i in 0..6 {
+            if !self.color_pickers[i].expanded {
+                continue;
+            }
+            if !visible(layout.color_pick_y[i], layout.color_pick_h[i]) {
+                continue;
+            }
+            let wb = self.picker_header_wb(&bounds, sy(layout.color_pick_y[i]));
+            self.color_pickers[i].paint_overlay(pixmap, wb, ctx);
+        }
     }
 
     fn event(&mut self, event: &Event, bounds: Rect) -> EventResponse {
@@ -496,113 +504,89 @@ impl SettingsPanel for AppearancePanel {
         }
 
         let layout = self.compute_layout();
-
-        // ── Update content height for scroll ────────────────────────────────
-        // (do this once per event, mutating is fine here)
         self.scroll.content_height = layout.content_height;
+        let scroll_offset = self.scroll.scroll_offset;
+        let sy = |cy: f32| bounds.y + cy - scroll_offset;
 
-        let sy = |cy: f32| bounds.y + cy - self.scroll.scroll_offset;
+        // ── PointerMove — forward to dragging picker ─────────────────────────
+        if let Event::PointerMove { .. } = event {
+            if let Some(i) = self.dragging_picker {
+                let wb = self.picker_header_wb(&bounds, sy(layout.color_pick_y[i]));
+                let resp = self.color_pickers[i].event(event, &wb);
+                if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                    let key = COLOR_FIELDS[i].0;
+                    let _ = self.set_value(key, value);
+                    self.mark_custom();
+                }
+                return resp;
+            }
+            return EventResponse::ignored();
+        }
 
         match event {
-            Event::PointerDown { x, y } | Event::PointerUp { x, y } => {
+            Event::PointerUp { x, y } => {
+                let prev = self.dragging_picker.take();
+
                 if !bounds.contains(*x, *y) {
                     return EventResponse::ignored();
                 }
 
-                // ── Preset dropdown ─────────────────────────────────────────
-                let drop_wb = Rect {
-                    x: bounds.x + H_PAD,
-                    y: sy(layout.preset_drop_y),
-                    width: bounds.width - H_PAD * 2.0,
-                    height: layout.preset_drop_h,
-                };
-                if drop_wb.contains(*x, *y) {
-                    let resp = self.preset_dropdown.event(event, &drop_wb);
+                // Forward PointerUp to the picker that was being dragged.
+                if let Some(i) = prev {
+                    let wb = self.picker_header_wb(&bounds, sy(layout.color_pick_y[i]));
+                    let resp = self.color_pickers[i].event(event, &wb);
                     if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let presets = Palette::builtin_presets();
-                        if let Some(idx) =
-                            presets.iter().position(|(name, _)| name == value)
-                        {
-                            self.apply_preset(idx);
-                            self.preset_dropdown.selected = idx;
-                        }
+                        let key = COLOR_FIELDS[i].0;
+                        let _ = self.set_value(key, value);
+                        self.mark_custom();
                     }
                     return resp;
                 }
 
-                // ── Color pickers ───────────────────────────────────────────
+                // Normal PointerUp routing for non-drag interactions.
+                self.route_pointer_event(event, &bounds, &layout, sy)
+            }
+
+            Event::PointerDown { x, y } => {
+                if !bounds.contains(*x, *y) {
+                    return EventResponse::ignored();
+                }
+
+                // Click-outside: dismiss expanded pickers not containing this click.
                 for i in 0..6 {
-                    let pick_wb = Rect {
-                        x: bounds.x + H_PAD,
-                        y: sy(layout.color_pick_y[i]),
-                        width: bounds.width - H_PAD * 2.0,
-                        height: layout.color_pick_h[i],
-                    };
-                    if pick_wb.contains(*x, *y) {
-                        let resp = self.color_pickers[i].event(event, &pick_wb);
-                        if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                            let key = COLOR_FIELDS[i].0;
-                            let _ = self.set_value(key, value);
-                            self.mark_custom();
-                            tracing::debug!("palette color {key} → {value}");
+                    if self.color_pickers[i].expanded {
+                        let full_wb = Rect {
+                            x: bounds.x + H_PAD,
+                            y: sy(layout.color_pick_y[i]),
+                            width: bounds.width - H_PAD * 2.0,
+                            height: layout.color_pick_h[i],
+                        };
+                        if !full_wb.contains(*x, *y) {
+                            self.color_pickers[i].dismiss_overlay();
                         }
-                        return resp;
                     }
                 }
 
-                // ── Font family ─────────────────────────────────────────────
-                let ff_wb = label_widget_wb(&bounds, sy(layout.font_family_row_y));
-                if ff_wb.contains(*x, *y) {
-                    let resp = self.font_family.event(event, &ff_wb);
-                    if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let _ = self.set_value("fonts.family", value);
+                let resp = self.route_pointer_event(event, &bounds, &layout, sy);
+                // Record which picker started a drag (if any consumed the event).
+                if resp.consumed && self.dragging_picker.is_none() {
+                    for i in 0..6 {
+                        let full_wb = Rect {
+                            x: bounds.x + H_PAD,
+                            y: sy(layout.color_pick_y[i]),
+                            width: bounds.width - H_PAD * 2.0,
+                            height: layout.color_pick_h[i],
+                        };
+                        if full_wb.contains(*x, *y) {
+                            self.dragging_picker = Some(i);
+                            break;
+                        }
                     }
-                    return resp;
                 }
-
-                // ── Mono family ─────────────────────────────────────────────
-                let mf_wb = label_widget_wb(&bounds, sy(layout.mono_family_row_y));
-                if mf_wb.contains(*x, *y) {
-                    let resp = self.mono_family.event(event, &mf_wb);
-                    if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let _ = self.set_value("fonts.mono_family", value);
-                    }
-                    return resp;
-                }
-
-                // ── Font size slider ─────────────────────────────────────────
-                let fs_wb = label_widget_wb(&bounds, sy(layout.font_size_row_y));
-                if fs_wb.contains(*x, *y) {
-                    let resp = self.font_size.event(event, &fs_wb);
-                    if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let _ = self.set_value("fonts.size", value);
-                    }
-                    return resp;
-                }
-
-                // ── Border radius slider ─────────────────────────────────────
-                let br_wb = label_widget_wb(&bounds, sy(layout.border_row_y));
-                if br_wb.contains(*x, *y) {
-                    let resp = self.border_radius.event(event, &br_wb);
-                    if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let _ = self.set_value("style.border_radius", value);
-                    }
-                    return resp;
-                }
-
-                // ── Opacity slider ───────────────────────────────────────────
-                let op_wb = label_widget_wb(&bounds, sy(layout.opacity_row_y));
-                if op_wb.contains(*x, *y) {
-                    let resp = self.opacity.event(event, &op_wb);
-                    if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
-                        let _ = self.set_value("style.opacity", value);
-                    }
-                    return resp;
-                }
+                resp
             }
 
             Event::KeyPress { .. } => {
-                // Delegate key events to whichever text input is focused.
                 if self.font_family.focused {
                     let resp = self.font_family.event(event, &Rect::default());
                     if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
@@ -617,7 +601,6 @@ impl SettingsPanel for AppearancePanel {
                     }
                     return resp;
                 }
-                // Hex inputs inside expanded pickers
                 for i in 0..6 {
                     if self.color_pickers[i].expanded {
                         let dummy = Rect::default();
@@ -632,9 +615,126 @@ impl SettingsPanel for AppearancePanel {
                         }
                     }
                 }
+                EventResponse::ignored()
             }
 
-            _ => {}
+            _ => EventResponse::ignored(),
+        }
+    }
+}
+
+impl AppearancePanel {
+    /// Shared pointer-event routing for both PointerDown and PointerUp.
+    fn route_pointer_event(
+        &mut self,
+        event: &Event,
+        bounds: &Rect,
+        layout: &PanelLayout,
+        sy: impl Fn(f32) -> f32,
+    ) -> EventResponse {
+        let (x, y) = match event {
+            Event::PointerDown { x, y } | Event::PointerUp { x, y } => (*x, *y),
+            _ => return EventResponse::ignored(),
+        };
+
+        // ── Preset dropdown ─────────────────────────────────────────────────
+        let drop_wb = Rect {
+            x: bounds.x + H_PAD,
+            y: sy(layout.preset_drop_y),
+            width: bounds.width - H_PAD * 2.0,
+            height: layout.preset_drop_h,
+        };
+        if drop_wb.contains(x, y) {
+            let resp = self.preset_dropdown.event(event, &drop_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let presets = Palette::builtin_presets();
+                if let Some(idx) =
+                    presets.iter().position(|(name, _)| name == value)
+                {
+                    self.apply_preset(idx);
+                    self.preset_dropdown.selected = idx;
+                }
+            }
+            return resp;
+        }
+
+        // ── Color pickers ───────────────────────────────────────────────────
+        for i in 0..6 {
+            let full_wb = Rect {
+                x: bounds.x + H_PAD,
+                y: sy(layout.color_pick_y[i]),
+                width: bounds.width - H_PAD * 2.0,
+                height: layout.color_pick_h[i],
+            };
+            if full_wb.contains(x, y) {
+                let hdr_wb = self.picker_header_wb(bounds, sy(layout.color_pick_y[i]));
+                let resp = self.color_pickers[i].event(event, &hdr_wb);
+                if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                    let key = COLOR_FIELDS[i].0;
+                    let _ = self.set_value(key, value);
+                    self.mark_custom();
+                    tracing::debug!("palette color {key} → {value}");
+                }
+                // When a picker expands, close all others.
+                if self.color_pickers[i].expanded {
+                    for j in 0..6 {
+                        if j != i {
+                            self.color_pickers[j].dismiss_overlay();
+                        }
+                    }
+                }
+                return resp;
+            }
+        }
+
+        // ── Font family ─────────────────────────────────────────────────────
+        let ff_wb = label_widget_wb(bounds, sy(layout.font_family_row_y));
+        if ff_wb.contains(x, y) {
+            let resp = self.font_family.event(event, &ff_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let _ = self.set_value("fonts.family", value);
+            }
+            return resp;
+        }
+
+        // ── Mono family ─────────────────────────────────────────────────────
+        let mf_wb = label_widget_wb(bounds, sy(layout.mono_family_row_y));
+        if mf_wb.contains(x, y) {
+            let resp = self.mono_family.event(event, &mf_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let _ = self.set_value("fonts.mono_family", value);
+            }
+            return resp;
+        }
+
+        // ── Font size slider ─────────────────────────────────────────────────
+        let fs_wb = label_widget_wb(bounds, sy(layout.font_size_row_y));
+        if fs_wb.contains(x, y) {
+            let resp = self.font_size.event(event, &fs_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let _ = self.set_value("fonts.size", value);
+            }
+            return resp;
+        }
+
+        // ── Border radius slider ─────────────────────────────────────────────
+        let br_wb = label_widget_wb(bounds, sy(layout.border_row_y));
+        if br_wb.contains(x, y) {
+            let resp = self.border_radius.event(event, &br_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let _ = self.set_value("style.border_radius", value);
+            }
+            return resp;
+        }
+
+        // ── Opacity slider ───────────────────────────────────────────────────
+        let op_wb = label_widget_wb(bounds, sy(layout.opacity_row_y));
+        if op_wb.contains(x, y) {
+            let resp = self.opacity.event(event, &op_wb);
+            if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
+                let _ = self.set_value("style.opacity", value);
+            }
+            return resp;
         }
 
         EventResponse::ignored()
@@ -685,7 +785,6 @@ fn paint_label_widget_row(
     widget.paint(pixmap, wb, ctx);
 }
 
-/// Returns the bounds for the widget (right half) in a label+widget row.
 fn label_widget_wb(bounds: &Rect, screen_y: f32) -> Rect {
     let widget_w = bounds.width * 0.5 - H_PAD;
     Rect {
@@ -696,7 +795,6 @@ fn label_widget_wb(bounds: &Rect, screen_y: f32) -> Rect {
     }
 }
 
-/// Extract a hex color string for a given key from a Palette.
 fn color_hex_from_palette(pal: &Palette, key: &str) -> String {
     match key {
         "colors.background" => pal.colors.background.clone(),
@@ -761,7 +859,6 @@ mod tests {
     fn apply_nord_preset_changes_background() {
         let mut panel =
             AppearancePanel::with_arc(Arc::new(Mutex::new(Palette::default())));
-        // Nord is index 2 in builtin_presets
         panel.apply_preset(2);
         let pal = panel.palette.lock().unwrap();
         assert_eq!(pal.colors.background, "#2e3440");
@@ -771,5 +868,11 @@ mod tests {
     fn six_color_pickers_created() {
         let panel = AppearancePanel::with_arc(Arc::new(Mutex::new(Palette::default())));
         assert_eq!(panel.color_pickers.len(), 6);
+    }
+
+    #[test]
+    fn dragging_picker_starts_none() {
+        let panel = AppearancePanel::with_arc(Arc::new(Mutex::new(Palette::default())));
+        assert!(panel.dragging_picker.is_none());
     }
 }

@@ -15,6 +15,7 @@ pub enum Event {
     PointerEnter,
     PointerLeave,
     PointerDown { x: f32, y: f32 },
+    PointerMove { x: f32, y: f32 },
     PointerUp { x: f32, y: f32 },
     KeyPress { key: String, utf8: Option<String> },
     Scroll { dx: f32, dy: f32 },
@@ -343,6 +344,8 @@ impl Widget for Slider {
     fn event(&mut self, event: &Event, bounds: &Rect) -> EventResponse {
         let x = match event {
             Event::PointerDown { x, y } | Event::PointerUp { x, y } if bounds.contains(*x, *y) => *x,
+            // PointerMove is forwarded by FormLayout only when this widget is being dragged
+            Event::PointerMove { x, .. } => *x,
             _ => return EventResponse::ignored(),
         };
         let fraction = ((x - bounds.x) / bounds.width).clamp(0.0, 1.0) as f64;

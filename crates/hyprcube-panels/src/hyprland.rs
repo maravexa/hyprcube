@@ -1,10 +1,32 @@
 use std::sync::{Arc, Mutex};
 
+use hyprcube_core::color::Color;
 use hyprcube_core::layout::Rect;
 use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
 use hyprcube_hyprconf::HyprlandConfig;
 
 use crate::{FieldType, PanelError, PanelField, SettingsPanel};
+
+/// Keys in the `general` section that use Hyprland's `rgba()` color format.
+const RGBA_KEYS: &[&str] = &["col.active_border", "col.inactive_border"];
+
+/// Normalize a raw config value for a Color field to a hex string the picker can parse.
+/// Handles both `rgba(rrggbbaa)` and `#rrggbb`/`#rrggbbaa` formats.
+fn normalize_to_hex(raw: &str) -> String {
+    // Try rgba() first, then plain hex.
+    Color::from_hypr_rgba(raw)
+        .or_else(|_| Color::from_hex(raw))
+        .map(|c| c.to_hex())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+/// Convert a hex color string back to `rgba()` format for keys that require it.
+fn hex_to_rgba(hex: &str) -> String {
+    Color::from_hex(hex)
+        .or_else(|_| Color::from_hypr_rgba(hex))
+        .map(|c| c.to_hypr_rgba())
+        .unwrap_or_else(|_| hex.to_string())
+}
 
 /// Settings panel for core Hyprland general options.
 pub struct HyprlandPanel {
@@ -59,7 +81,16 @@ impl SettingsPanel for HyprlandPanel {
 
         let make = |key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
             let original = gen(key, "general");
-            let current = original.clone().unwrap_or_default();
+            let raw = original.clone().unwrap_or_default();
+            // Normalize color values so the picker always receives a hex string.
+            let current = if matches!(ft, FieldType::Color) {
+                normalize_to_hex(&raw)
+            } else {
+                raw.clone()
+            };
+            let original_normalized = original.map(|v| {
+                if matches!(ft, FieldType::Color) { normalize_to_hex(&v) } else { v }
+            });
             PanelField {
                 key: key.into(),
                 section: Some("general".into()),
@@ -67,7 +98,7 @@ impl SettingsPanel for HyprlandPanel {
                 description: desc.into(),
                 field_type: ft,
                 current_value: current,
-                original_value: original,
+                original_value: original_normalized,
                 dirty: false,
             }
         };
@@ -92,9 +123,19 @@ impl SettingsPanel for HyprlandPanel {
 
     fn set_value(&mut self, key: &str, value: &str) -> Result<String, PanelError> {
         match key {
-            "gaps_in" | "gaps_out" | "border_size" | "col.active_border"
-            | "col.inactive_border" | "layout" | "resize_on_border" => {
+            "gaps_in" | "gaps_out" | "border_size" | "layout" | "resize_on_border" => {
                 Ok(self.general_set(key, value))
+            }
+            "col.active_border" | "col.inactive_border" => {
+                // Config stores rgba() format; the picker emits hex.
+                let config_value = if RGBA_KEYS.contains(&key) {
+                    hex_to_rgba(value)
+                } else {
+                    value.to_string()
+                };
+                let raw_old = self.general_set(key, &config_value);
+                // Return normalized hex so the undo stack has consistent values.
+                Ok(normalize_to_hex(&raw_old))
             }
             _ => Err(PanelError::UnknownKey(key.to_string())),
         }
