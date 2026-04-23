@@ -59,6 +59,25 @@ impl Color {
         }
     }
 
+    /// Parse Hyprland's `rgba(rrggbbaa)` format.
+    pub fn from_hypr_rgba(s: &str) -> Result<Self, ColorError> {
+        let s = s.trim();
+        let inner = s
+            .strip_prefix("rgba(")
+            .and_then(|t| t.strip_suffix(')'))
+            .ok_or_else(|| ColorError::InvalidHex(s.to_string()))?;
+        Self::from_hex(inner)
+    }
+
+    /// Convert to Hyprland's `rgba(rrggbbaa)` format (always 8 hex digits).
+    pub fn to_hypr_rgba(&self) -> String {
+        let r = (self.r * 255.0).round() as u8;
+        let g = (self.g * 255.0).round() as u8;
+        let b = (self.b * 255.0).round() as u8;
+        let a = (self.a * 255.0).round() as u8;
+        format!("rgba({r:02x}{g:02x}{b:02x}{a:02x})")
+    }
+
     /// Convert to `#rrggbb` (opaque) or `#rrggbbaa` hex string.
     pub fn to_hex(&self) -> String {
         let r = (self.r * 255.0).round() as u8;
@@ -165,8 +184,20 @@ mod tests {
     }
 
     #[test]
+    fn hsv_roundtrip_from_hex_red() {
+        let orig = Color::from_hex("#ff0000").unwrap();
+        let (h, s, v) = orig.to_hsv();
+        assert!(h.abs() < 0.5, "hue should be ~0, got {h}");
+        assert!((s - 1.0).abs() < 0.01);
+        assert!((v - 1.0).abs() < 0.01);
+        let back = Color::from_hsv(h, s, v, 1.0);
+        assert!((back.r - 1.0).abs() < 0.01);
+        assert!(back.g.abs() < 0.01);
+        assert!(back.b.abs() < 0.01);
+    }
+
+    #[test]
     fn hsv_from_produces_correct_rgb() {
-        // Pure green at full saturation and value
         let g = Color::from_hsv(120.0, 1.0, 1.0, 1.0);
         assert!((g.r).abs() < 0.01);
         assert!((g.g - 1.0).abs() < 0.01);
@@ -184,5 +215,40 @@ mod tests {
         assert!(black.r.abs() < 0.01);
         assert!(black.g.abs() < 0.01);
         assert!(black.b.abs() < 0.01);
+    }
+
+    #[test]
+    fn hsv_accent_blue_roundtrip() {
+        let orig = Color::from_hex("#89b4fa").unwrap();
+        let (h, s, v) = orig.to_hsv();
+        let back = Color::from_hsv(h, s, v, 1.0);
+        let tolerance = 1.0 / 255.0;
+        assert!((back.r - orig.r).abs() <= tolerance, "r off: {} vs {}", back.r, orig.r);
+        assert!((back.g - orig.g).abs() <= tolerance, "g off: {} vs {}", back.g, orig.g);
+        assert!((back.b - orig.b).abs() <= tolerance, "b off: {} vs {}", back.b, orig.b);
+    }
+
+    #[test]
+    fn hypr_rgba_roundtrip() {
+        let c = Color::from_hex("#89b4faee").unwrap();
+        let hypr = c.to_hypr_rgba();
+        assert_eq!(hypr, "rgba(89b4faee)");
+        let back = Color::from_hypr_rgba(&hypr).unwrap();
+        assert!((back.r - c.r).abs() < 0.001);
+        assert!((back.g - c.g).abs() < 0.001);
+        assert!((back.b - c.b).abs() < 0.001);
+        assert!((back.a - c.a).abs() < 0.001);
+    }
+
+    #[test]
+    fn hypr_rgba_opaque() {
+        let c = Color::new(1.0, 0.0, 0.0, 1.0);
+        assert_eq!(c.to_hypr_rgba(), "rgba(ff0000ff)");
+    }
+
+    #[test]
+    fn hypr_rgba_invalid() {
+        assert!(Color::from_hypr_rgba("notvalid").is_err());
+        assert!(Color::from_hypr_rgba("rgb(ff0000)").is_err());
     }
 }
