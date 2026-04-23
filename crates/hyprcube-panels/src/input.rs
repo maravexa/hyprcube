@@ -6,6 +6,55 @@ use hyprcube_hyprconf::HyprlandConfig;
 
 use crate::{FieldType, PanelError, PanelField, SettingsPanel};
 
+/// Hardcoded list of the most common XKB keyboard layouts: `(xkb_code, display_label)`.
+pub const COMMON_KB_LAYOUTS: &[(&str, &str)] = &[
+    ("us", "English (US)"),
+    ("gb", "English (UK)"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("br", "Portuguese (Brazil)"),
+    ("ru", "Russian"),
+    ("ua", "Ukrainian"),
+    ("pl", "Polish"),
+    ("cz", "Czech"),
+    ("sk", "Slovak"),
+    ("hu", "Hungarian"),
+    ("ro", "Romanian"),
+    ("bg", "Bulgarian"),
+    ("hr", "Croatian"),
+    ("rs", "Serbian"),
+    ("si", "Slovenian"),
+    ("se", "Swedish"),
+    ("no", "Norwegian"),
+    ("dk", "Danish"),
+    ("fi", "Finnish"),
+    ("nl", "Dutch"),
+    ("be", "Belgian"),
+    ("ch", "Swiss (German)"),
+    ("at", "Austrian"),
+    ("jp", "Japanese"),
+    ("kr", "Korean"),
+    ("cn", "Chinese"),
+    ("tw", "Chinese (Traditional)"),
+    ("in", "Indian"),
+    ("il", "Hebrew"),
+    ("ar", "Arabic"),
+    ("tr", "Turkish"),
+    ("gr", "Greek"),
+    ("th", "Thai"),
+    ("vn", "Vietnamese"),
+    ("latam", "Latin American"),
+    ("ca", "Canadian (Multilingual)"),
+    ("ie", "Irish"),
+    ("is", "Icelandic"),
+    ("ee", "Estonian"),
+    ("lt", "Lithuanian"),
+    ("lv", "Latvian"),
+];
+
 /// Settings panel for Hyprland input configuration (keyboard, mouse,
 /// touchpad).
 pub struct InputPanel {
@@ -84,9 +133,14 @@ impl SettingsPanel for InputPanel {
             }
         };
 
+        let kb_layout_options: Vec<(String, String)> = COMMON_KB_LAYOUTS
+            .iter()
+            .map(|(v, l)| (v.to_string(), l.to_string()))
+            .collect();
+
         vec![
-            make_inp("kb_layout", "Keyboard Layout", "XKB keyboard layout (e.g. us, de, fr).",
-                FieldType::Text),
+            make_inp("kb_layout", "Keyboard Layout", "XKB keyboard layout. Type to search or choose \"Other...\" for a custom code.",
+                FieldType::SearchableChoice { options: kb_layout_options }),
             make_inp("follow_mouse", "Follow Mouse", "Focus behavior when the cursor enters a window.",
                 FieldType::Choice { options: vec!["0".into(), "1".into(), "2".into(), "3".into()] }),
             make_inp("sensitivity", "Sensitivity", "Pointer sensitivity (-1.0 to 1.0).",
