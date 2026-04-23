@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::process::Command;
 
 use hyprcube_core::color::Color;
@@ -53,14 +52,6 @@ impl SystemInfo {
 }
 
 // ── System-info helpers ───────────────────────────────────────────────────────
-
-fn xdg_config_home() -> PathBuf {
-    std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
-        })
-}
 
 fn hyprland_version() -> String {
     let Ok(out) = Command::new("hyprctl").arg("version").output() else {
@@ -208,9 +199,11 @@ fn gpu_info() -> String {
 }
 
 /// Check whether a sibling app is present and return a short status string.
-fn ecosystem_status(bin: &str, config_subdir: &str) -> String {
-    let config_path = xdg_config_home().join(config_subdir).join("config.toml");
-    if config_path.exists() {
+///
+/// `config_filename` is the filename under `~/.config/hypr/`, e.g. `"hyprdeck.toml"`.
+fn ecosystem_status(bin: &str, config_filename: &str) -> String {
+    let config_path = hyprcube_core::hypr_config_dir().join(config_filename);
+    if config_path.is_file() {
         // Try to get version string from the binary.
         if let Ok(out) = Command::new(bin).arg("--version").output() {
             if out.status.success() {
@@ -242,8 +235,8 @@ impl AboutPanel {
     pub fn new() -> Self {
         Self {
             info:             SystemInfo::collect(),
-            hyprdeck_status:  ecosystem_status("hyprdeck",  "hyprdeck"),
-            hyprsaver_status: ecosystem_status("hyprsaver", "hyprsaver"),
+            hyprdeck_status:  ecosystem_status("hyprdeck",  "hyprdeck.toml"),
+            hyprsaver_status: ecosystem_status("hyprsaver", "hyprsaver.toml"),
         }
     }
 

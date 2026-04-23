@@ -27,23 +27,6 @@ impl InputPanel {
         Self { config }
     }
 
-    fn input_get(&self, key: &str) -> String {
-        self.config
-            .lock()
-            .unwrap()
-            .get_in_section("input", key)
-            .unwrap_or("")
-            .to_string()
-    }
-
-    fn touchpad_get(&self, key: &str) -> String {
-        self.config
-            .lock()
-            .unwrap()
-            .get_in_nested(&["input", "touchpad"], key)
-            .unwrap_or("")
-            .to_string()
-    }
 }
 
 impl Default for InputPanel {
@@ -62,77 +45,60 @@ impl SettingsPanel for InputPanel {
     }
 
     fn fields(&self) -> Vec<PanelField> {
+        let cfg = self.config.lock().unwrap();
+
+        let inp = |key: &str| -> Option<String> {
+            cfg.get_in_section("input", key).map(|s| s.to_string())
+        };
+        let tpad = |key: &str| -> Option<String> {
+            cfg.get_in_nested(&["input", "touchpad"], key).map(|s| s.to_string())
+        };
+
+        let make_inp = |key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
+            let original = inp(key);
+            let current = original.clone().unwrap_or_default();
+            PanelField {
+                key: key.into(),
+                section: Some("input".into()),
+                label: label.into(),
+                description: desc.into(),
+                field_type: ft,
+                current_value: current,
+                original_value: original,
+                dirty: false,
+            }
+        };
+
+        let make_tpad = |panel_key: &'static str, real_key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
+            let original = tpad(real_key);
+            let current = original.clone().unwrap_or_default();
+            PanelField {
+                key: panel_key.into(),
+                section: Some("input:touchpad".into()),
+                label: label.into(),
+                description: desc.into(),
+                field_type: ft,
+                current_value: current,
+                original_value: original,
+                dirty: false,
+            }
+        };
+
         vec![
-            PanelField {
-                key: "kb_layout".into(),
-                section: Some("input".into()),
-                label: "Keyboard Layout".into(),
-                description: "XKB keyboard layout (e.g. us, de, fr).".into(),
-                field_type: FieldType::Text,
-                current_value: self.input_get("kb_layout"),
-            },
-            PanelField {
-                key: "follow_mouse".into(),
-                section: Some("input".into()),
-                label: "Follow Mouse".into(),
-                description: "Focus behavior when the cursor enters a window.".into(),
-                field_type: FieldType::Choice {
-                    options: vec!["0".into(), "1".into(), "2".into(), "3".into()],
-                },
-                current_value: self.input_get("follow_mouse"),
-            },
-            PanelField {
-                key: "sensitivity".into(),
-                section: Some("input".into()),
-                label: "Sensitivity".into(),
-                description: "Pointer sensitivity (-1.0 to 1.0).".into(),
-                field_type: FieldType::Float {
-                    min: Some(-1.0),
-                    max: Some(1.0),
-                },
-                current_value: self.input_get("sensitivity"),
-            },
-            PanelField {
-                key: "accel_profile".into(),
-                section: Some("input".into()),
-                label: "Acceleration Profile".into(),
-                description: "Pointer acceleration profile.".into(),
-                field_type: FieldType::Choice {
-                    options: vec!["flat".into(), "adaptive".into()],
-                },
-                current_value: self.input_get("accel_profile"),
-            },
-            PanelField {
-                key: "scroll_method".into(),
-                section: Some("input".into()),
-                label: "Scroll Method".into(),
-                description: "Scroll input method.".into(),
-                field_type: FieldType::Choice {
-                    options: vec![
-                        "2fg".into(),
-                        "edge".into(),
-                        "on_button_down".into(),
-                        "no_scroll".into(),
-                    ],
-                },
-                current_value: self.input_get("scroll_method"),
-            },
-            PanelField {
-                key: "touchpad.natural_scroll".into(),
-                section: Some("input:touchpad".into()),
-                label: "Natural Scroll".into(),
-                description: "Invert touchpad scroll direction.".into(),
-                field_type: FieldType::Boolean,
-                current_value: self.touchpad_get("natural_scroll"),
-            },
-            PanelField {
-                key: "touchpad.tap-to-click".into(),
-                section: Some("input:touchpad".into()),
-                label: "Tap to Click".into(),
-                description: "Enable tap-to-click on the touchpad.".into(),
-                field_type: FieldType::Boolean,
-                current_value: self.touchpad_get("tap-to-click"),
-            },
+            make_inp("kb_layout", "Keyboard Layout", "XKB keyboard layout (e.g. us, de, fr).",
+                FieldType::Text),
+            make_inp("follow_mouse", "Follow Mouse", "Focus behavior when the cursor enters a window.",
+                FieldType::Choice { options: vec!["0".into(), "1".into(), "2".into(), "3".into()] }),
+            make_inp("sensitivity", "Sensitivity", "Pointer sensitivity (-1.0 to 1.0).",
+                FieldType::Float { min: Some(-1.0), max: Some(1.0) }),
+            make_inp("accel_profile", "Acceleration Profile", "Pointer acceleration profile.",
+                FieldType::Choice { options: vec!["flat".into(), "adaptive".into()] }),
+            make_inp("scroll_method", "Scroll Method", "Scroll input method.",
+                FieldType::Choice { options: vec!["2fg".into(), "edge".into(), "on_button_down".into(), "no_scroll".into()] }),
+            make_tpad("touchpad.natural_scroll", "natural_scroll",
+                "Natural Scroll", "Invert touchpad scroll direction.", FieldType::Boolean),
+            make_tpad("touchpad.tap-to-click", "tap-to-click",
+                "Tap to Click", "Enable tap-to-click on the touchpad.", FieldType::Boolean),
         ]
     }
 
@@ -233,6 +199,8 @@ mod tests {
             .set_value("touchpad.natural_scroll", "true")
             .unwrap();
         assert_eq!(old, "false");
-        assert_eq!(panel.touchpad_get("natural_scroll"), "true");
+        let fields = panel.fields();
+        let ns = fields.iter().find(|f| f.key == "touchpad.natural_scroll").unwrap();
+        assert_eq!(ns.current_value, "true");
     }
 }

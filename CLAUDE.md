@@ -20,21 +20,25 @@ crates/
 - **Hybrid hyprland.conf strategy**: file parser (`hyprcube-hyprconf`) for persistence, Hyprland IPC for live preview
 - **On-demand app** (no daemon); `--daemon` flag is reserved for future use
 - **Immediate IPC preview** with undo stack; changes are written to disk only on explicit Save
-- **Palette authority**: HyprCube writes `~/.config/hyprcube/palette.toml`, sibling apps read it
+- **Palette authority**: HyprCube writes `~/.config/hypr/hyprcube-palette.toml`, sibling apps read it
 - **Graceful degradation**: panels for uninstalled apps (HyprDeck, HyprSaver) are hidden automatically
 - **Structure-preserving parser**: hyprland.conf roundtrips without losing comments, blank lines, or ordering
 
 ## Config File Locations
 
-All paths respect `$XDG_CONFIG_HOME` (default `~/.config`).
+All paths respect `$XDG_CONFIG_HOME` (default `~/.config`). Every Hypr
+ecosystem app consolidates config under `~/.config/hypr/`.
 
 | File | Path | Format |
 |------|------|--------|
-| HyprCube config | `~/.config/hyprcube/config.toml` | TOML |
-| Palette | `~/.config/hyprcube/palette.toml` | TOML |
-| Hyprland | `~/.config/hypr/hyprland.conf` | Custom (NOT TOML) |
-| HyprDeck | `~/.config/hyprdeck/config.toml` | TOML |
-| HyprSaver | `~/.config/hyprsaver/config.toml` | TOML |
+| Hyprland config | `~/.config/hypr/hyprland.conf` | Custom (NOT TOML) |
+| HyprCube config | `~/.config/hypr/hyprcube.toml` | TOML |
+| HyprCube palette | `~/.config/hypr/hyprcube-palette.toml` | TOML |
+| HyprDeck config | `~/.config/hypr/hyprdeck.toml` | TOML |
+| HyprSaver config | `~/.config/hypr/hyprsaver.toml` | TOML |
+
+Use `hyprcube_core::hypr_config_dir()` everywhere in the codebase to obtain
+the base `hypr/` directory — never construct XDG paths manually.
 
 ## Hyprland IPC
 

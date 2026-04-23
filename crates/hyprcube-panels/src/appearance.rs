@@ -243,95 +243,45 @@ impl SettingsPanel for AppearancePanel {
 
     fn fields(&self) -> Vec<PanelField> {
         let pal = self.palette.lock().unwrap();
+
+        // Helper: all palette fields always exist (never None original_value).
+        let pf = |key: &'static str, label: &'static str, desc: &'static str,
+                   ft: FieldType, val: String| {
+            PanelField {
+                key: key.into(),
+                section: None,
+                label: label.into(),
+                description: desc.into(),
+                field_type: ft,
+                original_value: Some(val.clone()),
+                current_value: val,
+                dirty: false,
+            }
+        };
+
         vec![
-            PanelField {
-                key: "colors.background".into(),
-                section: None,
-                label: "Background".into(),
-                description: "Primary background color.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.background.clone(),
-            },
-            PanelField {
-                key: "colors.foreground".into(),
-                section: None,
-                label: "Foreground".into(),
-                description: "Primary text color.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.foreground.clone(),
-            },
-            PanelField {
-                key: "colors.accent".into(),
-                section: None,
-                label: "Accent".into(),
-                description: "Accent / highlight color.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.accent.clone(),
-            },
-            PanelField {
-                key: "colors.urgent".into(),
-                section: None,
-                label: "Urgent".into(),
-                description: "Color for urgent / error states.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.urgent.clone(),
-            },
-            PanelField {
-                key: "colors.surface".into(),
-                section: None,
-                label: "Surface".into(),
-                description: "Surface / card background color.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.surface.clone(),
-            },
-            PanelField {
-                key: "colors.overlay".into(),
-                section: None,
-                label: "Overlay".into(),
-                description: "Overlay / muted text color.".into(),
-                field_type: FieldType::Color,
-                current_value: pal.colors.overlay.clone(),
-            },
-            PanelField {
-                key: "fonts.family".into(),
-                section: None,
-                label: "Font Family".into(),
-                description: "Primary UI font family.".into(),
-                field_type: FieldType::Text,
-                current_value: pal.fonts.family.clone(),
-            },
-            PanelField {
-                key: "fonts.mono_family".into(),
-                section: None,
-                label: "Monospace Font".into(),
-                description: "Monospace font for code and config values.".into(),
-                field_type: FieldType::Text,
-                current_value: pal.fonts.mono_family.clone(),
-            },
-            PanelField {
-                key: "fonts.size".into(),
-                section: None,
-                label: "Font Size".into(),
-                description: "Base font size (pt).".into(),
-                field_type: FieldType::Float { min: Some(6.0), max: Some(48.0) },
-                current_value: pal.fonts.size.to_string(),
-            },
-            PanelField {
-                key: "style.border_radius".into(),
-                section: None,
-                label: "Border Radius".into(),
-                description: "Corner rounding for UI elements (px).".into(),
-                field_type: FieldType::Float { min: Some(0.0), max: Some(32.0) },
-                current_value: pal.style.border_radius.to_string(),
-            },
-            PanelField {
-                key: "style.opacity".into(),
-                section: None,
-                label: "Opacity".into(),
-                description: "Window opacity (0.0 – 1.0).".into(),
-                field_type: FieldType::Float { min: Some(0.0), max: Some(1.0) },
-                current_value: pal.style.opacity.to_string(),
-            },
+            pf("colors.background", "Background", "Primary background color.",
+                FieldType::Color, pal.colors.background.clone()),
+            pf("colors.foreground", "Foreground", "Primary text color.",
+                FieldType::Color, pal.colors.foreground.clone()),
+            pf("colors.accent", "Accent", "Accent / highlight color.",
+                FieldType::Color, pal.colors.accent.clone()),
+            pf("colors.urgent", "Urgent", "Color for urgent / error states.",
+                FieldType::Color, pal.colors.urgent.clone()),
+            pf("colors.surface", "Surface", "Surface / card background color.",
+                FieldType::Color, pal.colors.surface.clone()),
+            pf("colors.overlay", "Overlay", "Overlay / muted text color.",
+                FieldType::Color, pal.colors.overlay.clone()),
+            pf("fonts.family", "Font Family", "Primary UI font family.",
+                FieldType::Text, pal.fonts.family.clone()),
+            pf("fonts.mono_family", "Monospace Font", "Monospace font for code and config values.",
+                FieldType::Text, pal.fonts.mono_family.clone()),
+            pf("fonts.size", "Font Size", "Base font size (pt).",
+                FieldType::Float { min: Some(6.0), max: Some(48.0) }, pal.fonts.size.to_string()),
+            pf("style.border_radius", "Border Radius", "Corner rounding for UI elements (px).",
+                FieldType::Float { min: Some(0.0), max: Some(32.0) }, pal.style.border_radius.to_string()),
+            pf("style.opacity", "Opacity", "Window opacity (0.0 – 1.0).",
+                FieldType::Float { min: Some(0.0), max: Some(1.0) }, pal.style.opacity.to_string()),
         ]
     }
 

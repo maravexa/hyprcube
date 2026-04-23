@@ -39,10 +39,10 @@ A Rust-native GUI settings panel for [Hyprland](https://hyprland.org/) — no GT
 ## Ecosystem — Palette Sync Flow
 
 ```
-┌───────────┐   writes    ┌──────────────────────────┐
-│ HyprCube  │────────────▶│ ~/.config/hyprcube/      │
-│ (settings)│             │       palette.toml       │
-└───────────┘             └──────────┬───────────────┘
+┌───────────┐   writes    ┌──────────────────────────────────┐
+│ HyprCube  │────────────▶│ ~/.config/hypr/                  │
+│ (settings)│             │   hyprcube-palette.toml          │
+└───────────┘             └──────────────┬───────────────────┘
                                      │ reads
                           ┌──────────┴───────────────┐
                           │                          │

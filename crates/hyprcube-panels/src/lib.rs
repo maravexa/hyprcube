@@ -55,6 +55,11 @@ pub struct PanelField {
     pub description: String,
     pub field_type: FieldType,
     pub current_value: String,
+    /// The value that was in the config when the panel loaded.
+    /// `None` means the key did not exist in the original config.
+    pub original_value: Option<String>,
+    /// Set to `true` when the user explicitly changes this field's value.
+    pub dirty: bool,
 }
 
 // ---------------------------------------------------------------------------
