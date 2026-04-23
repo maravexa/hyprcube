@@ -84,13 +84,7 @@ impl Default for Palette {
 impl Palette {
     /// Return the default palette config path, respecting `XDG_CONFIG_HOME`.
     fn default_path() -> PathBuf {
-        let config_dir = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-                PathBuf::from(home).join(".config")
-            });
-        config_dir.join("hyprcube").join("palette.toml")
+        crate::hypr_config_dir().join("hyprcube-palette.toml")
     }
 
     /// Load a palette from the given path, or the default XDG path if `None`.

@@ -32,13 +32,7 @@ impl Default for AppConfig {
 impl AppConfig {
     /// Return the config file path, respecting `XDG_CONFIG_HOME`.
     fn config_path() -> PathBuf {
-        let config_dir = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-                PathBuf::from(home).join(".config")
-            });
-        config_dir.join("hyprcube").join("config.toml")
+        hyprcube_core::hypr_config_dir().join("hyprcube.toml")
     }
 
     /// Load the app config from the default XDG path.

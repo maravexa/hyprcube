@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use hyprcube_core::layout::Rect;
 use hyprcube_core::widget::{Constraints, Event, EventResponse, Size};
 
@@ -12,8 +10,7 @@ pub struct HyprdeckPanel {
 
 impl HyprdeckPanel {
     pub fn new() -> Self {
-        let config_dir = hyprdeck_config_dir();
-        let config = if config_dir.is_dir() { load_hyprdeck_config(&config_dir) } else { None };
+        let config = load_hyprdeck_config();
         Self { config }
     }
 }
@@ -24,18 +21,8 @@ impl Default for HyprdeckPanel {
     }
 }
 
-fn hyprdeck_config_dir() -> PathBuf {
-    let config_dir = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-            PathBuf::from(home).join(".config")
-        });
-    config_dir.join("hyprdeck")
-}
-
-fn load_hyprdeck_config(dir: &PathBuf) -> Option<toml::Table> {
-    let path = dir.join("config.toml");
+fn load_hyprdeck_config() -> Option<toml::Table> {
+    let path = hyprcube_core::hypr_config_dir().join("hyprdeck.toml");
     let content = std::fs::read_to_string(path).ok()?;
     content.parse::<toml::Table>().ok()
 }
@@ -50,6 +37,13 @@ fn table_get(table: &toml::Table, key: &str) -> String {
         .unwrap_or_default()
 }
 
+fn table_get_opt(table: &toml::Table, key: &str) -> Option<String> {
+    table.get(key).map(|v| match v {
+        toml::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    })
+}
+
 impl SettingsPanel for HyprdeckPanel {
     fn title(&self) -> &str {
         "HyprDeck"
@@ -57,6 +51,10 @@ impl SettingsPanel for HyprdeckPanel {
 
     fn icon(&self) -> &str {
         "application-menu"
+    }
+
+    fn available(&self) -> bool {
+        hyprcube_core::hypr_config_dir().join("hyprdeck.toml").is_file()
     }
 
     fn fields(&self) -> Vec<PanelField> {
@@ -70,6 +68,8 @@ impl SettingsPanel for HyprdeckPanel {
                     description: String::new(),
                     field_type: FieldType::Text,
                     current_value: String::new(),
+                    original_value: None,
+                    dirty: false,
                 }];
             }
         };
@@ -85,6 +85,8 @@ impl SettingsPanel for HyprdeckPanel {
                     max: Some(128),
                 },
                 current_value: table_get(table, "icon_size"),
+                original_value: table_get_opt(table, "icon_size"),
+                dirty: false,
             },
             PanelField {
                 key: "position".into(),
@@ -100,6 +102,8 @@ impl SettingsPanel for HyprdeckPanel {
                     ],
                 },
                 current_value: table_get(table, "position"),
+                original_value: table_get_opt(table, "position"),
+                dirty: false,
             },
             PanelField {
                 key: "auto_hide".into(),
@@ -108,6 +112,8 @@ impl SettingsPanel for HyprdeckPanel {
                 description: "Automatically hide the dock when not in use.".into(),
                 field_type: FieldType::Boolean,
                 current_value: table_get(table, "auto_hide"),
+                original_value: table_get_opt(table, "auto_hide"),
+                dirty: false,
             },
         ]
     }
@@ -154,11 +160,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn not_installed_message_when_dir_missing() {
+    fn not_installed_message_when_config_missing() {
         let panel = HyprdeckPanel { config: None };
         let fields = panel.fields();
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].key, "_not_installed");
+        assert!(fields[0].original_value.is_none());
     }
 
     #[test]
@@ -174,6 +181,18 @@ mod tests {
 
         let icon = fields.iter().find(|f| f.key == "icon_size").unwrap();
         assert_eq!(icon.current_value, "48");
+        assert_eq!(icon.original_value, Some("48".into()));
+        assert!(!icon.dirty);
+    }
+
+    #[test]
+    fn missing_toml_key_has_none_original_value() {
+        let table = toml::Table::new();
+        let panel = HyprdeckPanel { config: Some(table) };
+        let fields = panel.fields();
+        let icon = fields.iter().find(|f| f.key == "icon_size").unwrap();
+        assert_eq!(icon.original_value, None);
+        assert_eq!(icon.current_value, "");
     }
 
     #[test]

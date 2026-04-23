@@ -28,15 +28,6 @@ impl HyprlandPanel {
         Self { config }
     }
 
-    fn general_get(&self, key: &str) -> String {
-        self.config
-            .lock()
-            .unwrap()
-            .get_in_section("general", key)
-            .unwrap_or("")
-            .to_string()
-    }
-
     fn general_set(&mut self, key: &str, value: &str) -> String {
         let mut cfg = self.config.lock().unwrap();
         let old = cfg.get_in_section("general", key).unwrap_or("").to_string();
@@ -61,74 +52,41 @@ impl SettingsPanel for HyprlandPanel {
     }
 
     fn fields(&self) -> Vec<PanelField> {
+        let cfg = self.config.lock().unwrap();
+        let gen = |key: &str, section: &str| -> Option<String> {
+            cfg.get_in_section(section, key).map(|s| s.to_string())
+        };
+
+        let make = |key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
+            let original = gen(key, "general");
+            let current = original.clone().unwrap_or_default();
+            PanelField {
+                key: key.into(),
+                section: Some("general".into()),
+                label: label.into(),
+                description: desc.into(),
+                field_type: ft,
+                current_value: current,
+                original_value: original,
+                dirty: false,
+            }
+        };
+
         vec![
-            PanelField {
-                key: "gaps_in".into(),
-                section: Some("general".into()),
-                label: "Inner Gaps".into(),
-                description: "Gap size between tiled windows (px).".into(),
-                field_type: FieldType::Integer {
-                    min: Some(0),
-                    max: Some(100),
-                },
-                current_value: self.general_get("gaps_in"),
-            },
-            PanelField {
-                key: "gaps_out".into(),
-                section: Some("general".into()),
-                label: "Outer Gaps".into(),
-                description: "Gap size between windows and monitor edges (px).".into(),
-                field_type: FieldType::Integer {
-                    min: Some(0),
-                    max: Some(100),
-                },
-                current_value: self.general_get("gaps_out"),
-            },
-            PanelField {
-                key: "border_size".into(),
-                section: Some("general".into()),
-                label: "Border Size".into(),
-                description: "Window border thickness (px).".into(),
-                field_type: FieldType::Integer {
-                    min: Some(0),
-                    max: Some(20),
-                },
-                current_value: self.general_get("border_size"),
-            },
-            PanelField {
-                key: "col.active_border".into(),
-                section: Some("general".into()),
-                label: "Active Border Color".into(),
-                description: "Border color of the focused window.".into(),
-                field_type: FieldType::Color,
-                current_value: self.general_get("col.active_border"),
-            },
-            PanelField {
-                key: "col.inactive_border".into(),
-                section: Some("general".into()),
-                label: "Inactive Border Color".into(),
-                description: "Border color of unfocused windows.".into(),
-                field_type: FieldType::Color,
-                current_value: self.general_get("col.inactive_border"),
-            },
-            PanelField {
-                key: "layout".into(),
-                section: Some("general".into()),
-                label: "Layout".into(),
-                description: "Tiling layout algorithm.".into(),
-                field_type: FieldType::Choice {
-                    options: vec!["dwindle".into(), "master".into()],
-                },
-                current_value: self.general_get("layout"),
-            },
-            PanelField {
-                key: "resize_on_border".into(),
-                section: Some("general".into()),
-                label: "Resize on Border".into(),
-                description: "Allow resizing windows by dragging their border.".into(),
-                field_type: FieldType::Boolean,
-                current_value: self.general_get("resize_on_border"),
-            },
+            make("gaps_in", "Inner Gaps", "Gap size between tiled windows (px).",
+                FieldType::Integer { min: Some(0), max: Some(100) }),
+            make("gaps_out", "Outer Gaps", "Gap size between windows and monitor edges (px).",
+                FieldType::Integer { min: Some(0), max: Some(100) }),
+            make("border_size", "Border Size", "Window border thickness (px).",
+                FieldType::Integer { min: Some(0), max: Some(20) }),
+            make("col.active_border", "Active Border Color", "Border color of the focused window.",
+                FieldType::Color),
+            make("col.inactive_border", "Inactive Border Color", "Border color of unfocused windows.",
+                FieldType::Color),
+            make("layout", "Layout", "Tiling layout algorithm.",
+                FieldType::Choice { options: vec!["dwindle".into(), "master".into()] }),
+            make("resize_on_border", "Resize on Border", "Allow resizing windows by dragging their border.",
+                FieldType::Boolean),
         ]
     }
 
@@ -200,7 +158,9 @@ mod tests {
         let mut panel = panel_with_config("general {\n    gaps_in = 5\n}");
         let old = panel.set_value("gaps_in", "8").unwrap();
         assert_eq!(old, "5");
-        assert_eq!(panel.general_get("gaps_in"), "8");
+        let fields = panel.fields();
+        let f = fields.iter().find(|f| f.key == "gaps_in").unwrap();
+        assert_eq!(f.current_value, "8");
     }
 
     #[test]

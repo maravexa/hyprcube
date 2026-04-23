@@ -327,6 +327,49 @@ impl HyprlandConfig {
             true
         });
     }
+
+    /// Remove the first top-level `key = value` matching `key`.
+    /// Returns `true` if an entry was removed.
+    pub fn remove(&mut self, key: &str) -> bool {
+        let mut removed = false;
+        self.items.retain(|item| {
+            if !removed {
+                if let ConfigItem::KeyValue { key: k, .. } = item {
+                    if k == key {
+                        removed = true;
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+        removed
+    }
+
+    /// Remove the first `key = value` inside the named top-level section.
+    /// Returns `true` if an entry was removed.
+    pub fn remove_in_section(&mut self, section: &str, key: &str) -> bool {
+        for item in self.items.iter_mut() {
+            if let ConfigItem::Section { name, items } = item {
+                if name == section {
+                    let mut removed = false;
+                    items.retain(|sub| {
+                        if !removed {
+                            if let ConfigItem::KeyValue { key: k, .. } = sub {
+                                if k == key {
+                                    removed = true;
+                                    return false;
+                                }
+                            }
+                        }
+                        true
+                    });
+                    return removed;
+                }
+            }
+        }
+        false
+    }
 }
 
 fn set_in_nested_items(items: &mut Vec<ConfigItem>, path: &[&str], key: &str, value: &str) {
@@ -743,5 +786,90 @@ source = ~/.config/hypr/b.conf";
         assert_eq!(config.items.len(), 4);
         assert_eq!(config.items[1], ConfigItem::Blank);
         assert_eq!(config.items[2], ConfigItem::Blank);
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Remove API tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn remove_first_top_level_key() {
+        let mut config = HyprlandConfig::parse("a = 1\nb = 2\na = 3").unwrap();
+        let removed = config.remove("a");
+        assert!(removed);
+        // Only the first "a" is gone; second "a = 3" remains.
+        assert_eq!(config.get("a"), Some("3"));
+        assert_eq!(config.get("b"), Some("2"));
+    }
+
+    #[test]
+    fn remove_nonexistent_key_returns_false() {
+        let mut config = HyprlandConfig::parse("a = 1").unwrap();
+        assert!(!config.remove("missing"));
+    }
+
+    #[test]
+    fn remove_in_section_removes_matching_key() {
+        let input = "general {\n    gaps_in = 5\n    gaps_out = 10\n}";
+        let mut config = HyprlandConfig::parse(input).unwrap();
+        let removed = config.remove_in_section("general", "gaps_in");
+        assert!(removed);
+        assert_eq!(config.get_in_section("general", "gaps_in"), None);
+        assert_eq!(config.get_in_section("general", "gaps_out"), Some("10"));
+    }
+
+    #[test]
+    fn remove_in_section_missing_section_returns_false() {
+        let mut config = HyprlandConfig::parse("general {\n    gaps_in = 5\n}").unwrap();
+        assert!(!config.remove_in_section("input", "kb_layout"));
+    }
+
+    #[test]
+    fn remove_in_section_missing_key_returns_false() {
+        let mut config = HyprlandConfig::parse("general {\n    gaps_in = 5\n}").unwrap();
+        assert!(!config.remove_in_section("general", "nonexistent"));
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. Roundtrip safety: panel save must not introduce empty-value keys
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn save_does_not_add_empty_keys() {
+        let input = "\
+general {
+    gaps_in = 5
+    border_size = 2
+}
+
+input {
+    kb_layout = us
+    sensitivity = 0.0
+}
+";
+        let mut config = HyprlandConfig::parse(input).unwrap();
+
+        // Simulate what a panel save does — set only dirty fields
+        config.set_in_section("general", "gaps_in", "10");
+        // Do NOT set kb_variant, kb_model, etc. — they were never in the config.
+
+        let output = config.to_string_lossy();
+
+        // Verify no empty-value keys were introduced.
+        for line in output.lines() {
+            if let Some((key, val)) = line.split_once('=') {
+                let val = val.trim();
+                assert!(!val.is_empty(), "Empty value for key: {}", key.trim());
+            }
+        }
+
+        // Verify original structure preserved and mutation applied.
+        assert!(output.contains("gaps_in = 10"));
+        assert!(output.contains("border_size = 2"));
+        assert!(output.contains("kb_layout = us"));
+        assert!(!output.contains("kb_variant"));
+        assert!(!output.contains("kb_model"));
+        assert!(!output.contains("kb_options"));
+        assert!(!output.contains("kb_rules"));
     }
 }
