@@ -27,7 +27,7 @@ impl AppStatus {
     fn as_str(&self) -> &'static str {
         match self {
             AppStatus::Installed => "installed",
-            AppStatus::NotFound  => "not found",
+            AppStatus::NotFound => "not found",
         }
     }
 }
@@ -35,13 +35,17 @@ impl AppStatus {
 // ── Sync IPC helpers (no external processes) ──────────────────────────────────
 
 fn ipc_socket_path() -> Option<std::path::PathBuf> {
-    let runtime_dir  = std::env::var("XDG_RUNTIME_DIR").ok()?;
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").ok()?;
     let instance_sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
     let path = std::path::PathBuf::from(runtime_dir)
         .join("hypr")
         .join(&instance_sig)
         .join(".socket.sock");
-    if path.exists() { Some(path) } else { None }
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn ipc_request_sync(socket_path: &std::path::Path, command: &str) -> Option<String> {
@@ -58,7 +62,7 @@ fn ipc_request_sync(socket_path: &std::path::Path, command: &str) -> Option<Stri
 
 fn ipc_query_json(command: &str) -> Option<serde_json::Value> {
     let path = ipc_socket_path()?;
-    let raw  = ipc_request_sync(&path, &format!("j/{command}"))?;
+    let raw = ipc_request_sync(&path, &format!("j/{command}"))?;
     serde_json::from_str(&raw).ok()
 }
 
@@ -68,14 +72,14 @@ fn ipc_query_json(command: &str) -> Option<serde_json::Value> {
 pub struct SystemInfo {
     pub hyprcube_version: String,
     pub hyprland_version: Option<String>,
-    pub kernel:           String,
-    pub hostname:         String,
-    pub uptime:           String,
-    pub cpu:              String,
-    pub memory_used:      String,
-    pub memory_total:     String,
-    pub gpu:              String,
-    pub session_type:     String,
+    pub kernel: String,
+    pub hostname: String,
+    pub uptime: String,
+    pub cpu: String,
+    pub memory_used: String,
+    pub memory_total: String,
+    pub gpu: String,
+    pub session_type: String,
 }
 
 impl SystemInfo {
@@ -85,14 +89,14 @@ impl SystemInfo {
         Self {
             hyprcube_version: env!("CARGO_PKG_VERSION").to_string(),
             hyprland_version: hyprland_version(),
-            kernel:           kernel_version(),
-            hostname:         hostname(),
-            uptime:           uptime(),
-            cpu:              cpu_model(),
+            kernel: kernel_version(),
+            hostname: hostname(),
+            uptime: uptime(),
+            cpu: cpu_model(),
             memory_used,
             memory_total,
-            gpu:              gpu_info(),
-            session_type:     session_type(),
+            gpu: gpu_info(),
+            session_type: session_type(),
         }
     }
 }
@@ -141,9 +145,9 @@ fn uptime() -> String {
 /// Format a seconds value as "Xd Xh Xm" (or "Xh Xm" when < 1 day).
 fn format_uptime(secs: f64) -> String {
     let total = secs as u64;
-    let days  = total / 86_400;
+    let days = total / 86_400;
     let hours = (total % 86_400) / 3_600;
-    let mins  = (total % 3_600)  / 60;
+    let mins = (total % 3_600) / 60;
     if days > 0 {
         format!("{}d {}h {}m", days, hours, mins)
     } else {
@@ -155,7 +159,7 @@ fn cpu_model() -> String {
     if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
         for line in content.lines() {
             if line.starts_with("model name") {
-                if let Some(name) = line.splitn(2, ':').nth(1) {
+                if let Some((_, name)) = line.split_once(':') {
                     return name.trim().to_string();
                 }
             }
@@ -182,7 +186,7 @@ fn memory_info() -> (String, String) {
             }
         }
         if total_kb > 0 {
-            let used_gb  = (total_kb.saturating_sub(avail_kb)) as f64 / 1_048_576.0;
+            let used_gb = (total_kb.saturating_sub(avail_kb)) as f64 / 1_048_576.0;
             let total_gb = total_kb as f64 / 1_048_576.0;
             return (format!("{:.1} GB", used_gb), format!("{:.1} GB", total_gb));
         }
@@ -196,7 +200,7 @@ fn gpu_info() -> String {
         let mut names: Vec<String> = entries
             .flatten()
             .filter_map(|e| {
-                let p    = e.path();
+                let p = e.path();
                 let name = p.file_name()?.to_string_lossy().into_owned();
                 // card0, card1, … (no dash → top-level card node)
                 if !name.starts_with("card") || name.contains('-') {
@@ -249,27 +253,27 @@ fn parse_hex(hex: &str) -> Color {
 // ── AboutPanel ────────────────────────────────────────────────────────────────
 
 pub struct AboutPanel {
-    info:             SystemInfo,
-    hyprdeck_status:  AppStatus,
+    info: SystemInfo,
+    hyprdeck_status: AppStatus,
     hyprsaver_status: AppStatus,
     /// Screen-space bounds of the "↻ Refresh" button (updated each paint).
-    refresh_btn:      std::cell::Cell<Rect>,
+    refresh_btn: std::cell::Cell<Rect>,
 }
 
 impl AboutPanel {
     pub fn new() -> Self {
         Self {
-            info:             SystemInfo::collect(),
-            hyprdeck_status:  ecosystem_status("hyprdeck.toml"),
+            info: SystemInfo::collect(),
+            hyprdeck_status: ecosystem_status("hyprdeck.toml"),
             hyprsaver_status: ecosystem_status("hyprsaver.toml"),
-            refresh_btn:      std::cell::Cell::new(Rect::default()),
+            refresh_btn: std::cell::Cell::new(Rect::default()),
         }
     }
 
     /// Re-collect all system info (e.g. uptime, memory).
     fn refresh(&mut self) {
-        self.info             = SystemInfo::collect();
-        self.hyprdeck_status  = ecosystem_status("hyprdeck.toml");
+        self.info = SystemInfo::collect();
+        self.hyprdeck_status = ecosystem_status("hyprdeck.toml");
         self.hyprsaver_status = ecosystem_status("hyprsaver.toml");
     }
 
@@ -288,8 +292,16 @@ impl Default for AboutPanel {
 // ── SettingsPanel impl ────────────────────────────────────────────────────────
 
 impl SettingsPanel for AboutPanel {
-    fn title(&self) -> &str { "About" }
-    fn icon(&self) -> &str  { "help-about" }
+    fn title(&self) -> &str {
+        "About"
+    }
+    fn icon(&self) -> &str {
+        "help-about"
+    }
+
+    fn uses_custom_layout(&self) -> bool {
+        true
+    }
 
     fn fields(&self) -> Vec<PanelField> {
         Vec::new()
@@ -304,7 +316,10 @@ impl SettingsPanel for AboutPanel {
     }
 
     fn measure(&self, constraints: Constraints) -> Size {
-        Size { width: constraints.max_width, height: constraints.max_height }
+        Size {
+            width: constraints.max_width,
+            height: constraints.max_height,
+        }
     }
 
     fn paint(
@@ -313,68 +328,103 @@ impl SettingsPanel for AboutPanel {
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         ctx: &mut hyprcube_core::text::RenderContext<'_>,
     ) {
-        let overlay   = parse_hex(&ctx.palette.colors.overlay);
-        let accent    = parse_hex(&ctx.palette.colors.accent);
-        let fg        = parse_hex(&ctx.palette.colors.foreground);
+        let overlay = parse_hex(&ctx.palette.colors.overlay);
+        let accent = parse_hex(&ctx.palette.colors.accent);
+        let fg = parse_hex(&ctx.palette.colors.foreground);
         let font_size = ctx.palette.fonts.size as f32;
-        let title_fs  = font_size + 8.0;
+        let title_fs = font_size + 8.0;
 
-        let x       = bounds.x + H_PAD;
+        let x = bounds.x + H_PAD;
         let avail_w = bounds.width - H_PAD * 2.0;
-        let mut cy  = bounds.y + V_PAD;
+        let mut cy = bounds.y + V_PAD;
 
         // ── Title ─────────────────────────────────────────────────────────────
-        ctx.text.draw_text(pixmap, "HyprCube", x, cy, title_fs, accent, avail_w * 0.55);
+        ctx.text
+            .draw_text(pixmap, "HyprCube", x, cy, title_fs, accent, avail_w * 0.55);
         let ver_str = format!("v{}", self.info.hyprcube_version);
-        let ver_x   = x + title_fs * 5.2;
-        ctx.text.draw_text(pixmap, &ver_str, ver_x, cy + (title_fs - font_size) * 0.5, font_size, overlay, avail_w * 0.4);
+        let ver_x = x + title_fs * 5.2;
+        ctx.text.draw_text(
+            pixmap,
+            &ver_str,
+            ver_x,
+            cy + (title_fs - font_size) * 0.5,
+            font_size,
+            overlay,
+            avail_w * 0.4,
+        );
         cy += title_fs * 1.6;
 
         // ── Subtitle ─────────────────────────────────────────────────────────
         ctx.text.draw_text(
-            pixmap, "Unified Settings for Hyprland",
-            x, cy, font_size, overlay, avail_w,
+            pixmap,
+            "Unified Settings for Hyprland",
+            x,
+            cy,
+            font_size,
+            overlay,
+            avail_w,
         );
         cy += font_size * 1.5 + SECTION_GAP;
 
         // ── Refresh button (top-right corner) ─────────────────────────────────
         let btn_text = "\u{21BB} Refresh";
-        let btn_w    = font_size * 5.5;
-        let btn_x    = bounds.x + bounds.width - H_PAD - btn_w;
-        let btn_y    = bounds.y + V_PAD;
-        let btn_rect = Rect { x: btn_x, y: btn_y, width: btn_w, height: font_size * 1.6 };
+        let btn_w = font_size * 5.5;
+        let btn_x = bounds.x + bounds.width - H_PAD - btn_w;
+        let btn_y = bounds.y + V_PAD;
+        let btn_rect = Rect {
+            x: btn_x,
+            y: btn_y,
+            width: btn_w,
+            height: font_size * 1.6,
+        };
         self.refresh_btn.set(btn_rect);
-        ctx.text.draw_text(pixmap, btn_text, btn_x, btn_y, font_size, overlay, btn_w + 4.0);
+        ctx.text.draw_text(
+            pixmap,
+            btn_text,
+            btn_x,
+            btn_y,
+            font_size,
+            overlay,
+            btn_w + 4.0,
+        );
 
         // ── Separator ─────────────────────────────────────────────────────────
         fill_rounded_rect(pixmap, x, cy, avail_w, 1.0, 0.0, overlay);
         cy += 1.0 + SECTION_GAP;
 
         // ── System info rows ──────────────────────────────────────────────────
-        let hyprland_val = self.info.hyprland_version.as_deref().unwrap_or("not connected");
-        let memory_val   = if self.info.memory_used != "unknown" {
+        let hyprland_val = self
+            .info
+            .hyprland_version
+            .as_deref()
+            .unwrap_or("not connected");
+        let memory_val = if self.info.memory_used != "unknown" {
             format!("{} / {}", self.info.memory_used, self.info.memory_total)
         } else {
             "unknown".to_string()
         };
 
         let rows: &[(&str, &str)] = &[
-            ("Hyprland",  hyprland_val),
-            ("Kernel",    &self.info.kernel),
-            ("Hostname",  &self.info.hostname),
-            ("Uptime",    &self.info.uptime),
-            ("CPU",       &self.info.cpu),
-            ("Memory",    &memory_val),
-            ("GPU",       &self.info.gpu),
-            ("Session",   &self.info.session_type),
+            ("Hyprland", hyprland_val),
+            ("Kernel", &self.info.kernel),
+            ("Hostname", &self.info.hostname),
+            ("Uptime", &self.info.uptime),
+            ("CPU", &self.info.cpu),
+            ("Memory", &memory_val),
+            ("GPU", &self.info.gpu),
+            ("Session", &self.info.session_type),
         ];
 
         let val_x = x + LABEL_W;
         let val_w = (avail_w - LABEL_W).max(0.0);
         for (label, value) in rows {
-            if *value == "unknown" { continue; }
-            ctx.text.draw_text(pixmap, label, x,     cy, font_size, overlay, LABEL_W);
-            ctx.text.draw_text(pixmap, value, val_x, cy, font_size, fg,      val_w);
+            if *value == "unknown" {
+                continue;
+            }
+            ctx.text
+                .draw_text(pixmap, label, x, cy, font_size, overlay, LABEL_W);
+            ctx.text
+                .draw_text(pixmap, value, val_x, cy, font_size, fg, val_w);
             cy += ROW_H + ROW_GAP;
         }
 
@@ -385,18 +435,67 @@ impl SettingsPanel for AboutPanel {
         cy += 1.0 + SECTION_GAP;
 
         // ── Ecosystem section ─────────────────────────────────────────────────
-        ctx.text.draw_text(pixmap, "Ecosystem", x, cy, font_size + 2.0, fg, avail_w);
+        ctx.text
+            .draw_text(pixmap, "Ecosystem", x, cy, font_size + 2.0, fg, avail_w);
         cy += (font_size + 2.0) * 1.6 + ROW_GAP;
 
         let eco: &[(&str, &AppStatus)] = &[
-            ("HyprDeck",  &self.hyprdeck_status),
+            ("HyprDeck", &self.hyprdeck_status),
             ("HyprSaver", &self.hyprsaver_status),
         ];
         for (label, status) in eco {
-            let val_color = if **status == AppStatus::Installed { accent } else { overlay };
-            ctx.text.draw_text(pixmap, label,             x,     cy, font_size, overlay,   LABEL_W);
-            ctx.text.draw_text(pixmap, status.as_str(), val_x, cy, font_size, val_color, val_w);
+            let val_color = if **status == AppStatus::Installed {
+                accent
+            } else {
+                overlay
+            };
+            ctx.text
+                .draw_text(pixmap, label, x, cy, font_size, overlay, LABEL_W);
+            ctx.text.draw_text(
+                pixmap,
+                status.as_str(),
+                val_x,
+                cy,
+                font_size,
+                val_color,
+                val_w,
+            );
             cy += ROW_H + ROW_GAP;
+        }
+
+        cy += SECTION_GAP;
+        fill_rounded_rect(pixmap, x, cy, avail_w, 1.0, 0.0, overlay);
+        cy += 1.0 + SECTION_GAP;
+
+        // ── Project and attribution section ─────────────────────────────────
+        ctx.text.draw_text(
+            pixmap,
+            "Project & Licenses",
+            x,
+            cy,
+            font_size + 2.0,
+            fg,
+            avail_w,
+        );
+        cy += (font_size + 2.0) * 1.6;
+        let notices = [
+            "HyprCube — MIT License — github.com/maravexa/hyprcube",
+            "HyprDeck and HyprSaver — MIT License",
+            "Hyprland and Hyprpaper — independent Hypr ecosystem projects",
+            "Built with Rust, Smithay Client Toolkit, tiny-skia, and cosmic-text",
+            "Complete dependency license texts are distributed with their source packages.",
+        ];
+        for notice in notices {
+            ctx.text.draw_text(
+                pixmap,
+                notice,
+                x,
+                cy,
+                (font_size - 1.0).max(9.0),
+                overlay,
+                avail_w,
+            );
+            cy += (font_size * 1.35).max(18.0);
         }
     }
 
@@ -404,7 +503,10 @@ impl SettingsPanel for AboutPanel {
         if let Event::PointerUp { x, y } = event {
             if self.refresh_btn.get().contains(*x, *y) {
                 self.refresh();
-                return EventResponse { consumed: true, action: None };
+                return EventResponse {
+                    consumed: true,
+                    action: None,
+                };
             }
         }
         EventResponse::ignored()
@@ -452,8 +554,14 @@ mod tests {
     #[test]
     fn memory_info_format() {
         let (used, total) = memory_info();
-        assert!(used.contains("GB") || used == "unknown", "unexpected: '{used}'");
-        assert!(total.contains("GB") || total == "unknown", "unexpected: '{total}'");
+        assert!(
+            used.contains("GB") || used == "unknown",
+            "unexpected: '{used}'"
+        );
+        assert!(
+            total.contains("GB") || total == "unknown",
+            "unexpected: '{total}'"
+        );
     }
 
     #[test]
@@ -465,6 +573,6 @@ mod tests {
     #[test]
     fn app_status_strings() {
         assert_eq!(AppStatus::Installed.as_str(), "installed");
-        assert_eq!(AppStatus::NotFound.as_str(),  "not found");
+        assert_eq!(AppStatus::NotFound.as_str(), "not found");
     }
 }

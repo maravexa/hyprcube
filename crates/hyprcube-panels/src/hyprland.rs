@@ -89,7 +89,11 @@ impl SettingsPanel for HyprlandPanel {
                 raw.clone()
             };
             let original_normalized = original.map(|v| {
-                if matches!(ft, FieldType::Color) { normalize_to_hex(&v) } else { v }
+                if matches!(ft, FieldType::Color) {
+                    normalize_to_hex(&v)
+                } else {
+                    v
+                }
             });
             PanelField {
                 key: key.into(),
@@ -104,20 +108,59 @@ impl SettingsPanel for HyprlandPanel {
         };
 
         vec![
-            make("gaps_in", "Inner Gaps", "Gap size between tiled windows (px).",
-                FieldType::Integer { min: Some(0), max: Some(100) }),
-            make("gaps_out", "Outer Gaps", "Gap size between windows and monitor edges (px).",
-                FieldType::Integer { min: Some(0), max: Some(100) }),
-            make("border_size", "Border Size", "Window border thickness (px).",
-                FieldType::Integer { min: Some(0), max: Some(20) }),
-            make("col.active_border", "Active Border Color", "Border color of the focused window.",
-                FieldType::Color),
-            make("col.inactive_border", "Inactive Border Color", "Border color of unfocused windows.",
-                FieldType::Color),
-            make("layout", "Layout", "Tiling layout algorithm.",
-                FieldType::Choice { options: vec!["dwindle".into(), "master".into()] }),
-            make("resize_on_border", "Resize on Border", "Allow resizing windows by dragging their border.",
-                FieldType::Boolean),
+            make(
+                "gaps_in",
+                "Inner Gaps",
+                "Gap size between tiled windows (px).",
+                FieldType::Integer {
+                    min: Some(0),
+                    max: Some(100),
+                },
+            ),
+            make(
+                "gaps_out",
+                "Outer Gaps",
+                "Gap size between windows and monitor edges (px).",
+                FieldType::Integer {
+                    min: Some(0),
+                    max: Some(100),
+                },
+            ),
+            make(
+                "border_size",
+                "Border Size",
+                "Window border thickness (px).",
+                FieldType::Integer {
+                    min: Some(0),
+                    max: Some(20),
+                },
+            ),
+            make(
+                "col.active_border",
+                "Active Border Color",
+                "Border color of the focused window.",
+                FieldType::Color,
+            ),
+            make(
+                "col.inactive_border",
+                "Inactive Border Color",
+                "Border color of unfocused windows.",
+                FieldType::Color,
+            ),
+            make(
+                "layout",
+                "Layout",
+                "Tiling layout algorithm.",
+                FieldType::Choice {
+                    options: vec!["dwindle".into(), "master".into()],
+                },
+            ),
+            make(
+                "resize_on_border",
+                "Resize on Border",
+                "Allow resizing windows by dragging their border.",
+                FieldType::Boolean,
+            ),
         ]
     }
 
@@ -167,7 +210,9 @@ mod tests {
 
     fn panel_with_config(input: &str) -> HyprlandPanel {
         let config = HyprlandConfig::parse(input).unwrap();
-        HyprlandPanel { config: Arc::new(Mutex::new(config)) }
+        HyprlandPanel {
+            config: Arc::new(Mutex::new(config)),
+        }
     }
 
     #[test]
@@ -190,7 +235,12 @@ mod tests {
         let panel = panel_with_config("general {\n    gaps_in = 5\n}");
         let fields = panel.fields();
         for f in &fields {
-            assert_eq!(f.section.as_deref(), Some("general"), "field {} missing section", f.key);
+            assert_eq!(
+                f.section.as_deref(),
+                Some("general"),
+                "field {} missing section",
+                f.key
+            );
         }
     }
 

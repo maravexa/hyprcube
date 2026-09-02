@@ -199,8 +199,104 @@ impl Widget for Label {
                 Color::new(0.804, 0.839, 0.957, 1.0),
             )
         });
-        ctx.text
-            .draw_text(pixmap, &self.text, bounds.x, bounds.y, self.font_size, color, bounds.width);
+        ctx.text.draw_text(
+            pixmap,
+            &self.text,
+            bounds.x,
+            bounds.y,
+            self.font_size,
+            color,
+            bounds.width,
+        );
+    }
+}
+
+/// A push button that emits a value-change action when activated.
+pub struct Button {
+    pub key: String,
+    pub label: String,
+    pressed: bool,
+}
+
+impl Button {
+    pub fn new(key: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+            pressed: false,
+        }
+    }
+}
+
+impl Widget for Button {
+    fn measure(&self, constraints: Constraints) -> Size {
+        Size {
+            width: 160.0_f32.clamp(constraints.min_width, constraints.max_width),
+            height: 32.0_f32.clamp(constraints.min_height, constraints.max_height),
+        }
+    }
+
+    fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
+        let accent = parse_color(
+            &ctx.palette.colors.accent,
+            Color::new(0.537, 0.706, 0.98, 1.0),
+        );
+        let foreground = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let color = if self.pressed {
+            Color::new(accent.r * 0.8, accent.g * 0.8, accent.b * 0.8, accent.a)
+        } else {
+            accent
+        };
+        fill_rounded_rect(
+            pixmap,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+            6.0,
+            color,
+        );
+        let font_size = ctx.palette.fonts.size as f32;
+        ctx.text.draw_text(
+            pixmap,
+            &self.label,
+            bounds.x + 10.0,
+            bounds.y + (bounds.height - font_size * 1.3) / 2.0,
+            font_size,
+            foreground,
+            bounds.width - 20.0,
+        );
+    }
+
+    fn event(&mut self, event: &Event, bounds: &Rect) -> EventResponse {
+        match event {
+            Event::PointerDown { x, y } if bounds.contains(*x, *y) => {
+                self.pressed = true;
+                EventResponse {
+                    consumed: true,
+                    action: None,
+                }
+            }
+            Event::PointerUp { x, y } => {
+                let activate = self.pressed && bounds.contains(*x, *y);
+                self.pressed = false;
+                if activate {
+                    EventResponse {
+                        consumed: true,
+                        action: Some(WidgetAction::ValueChanged {
+                            key: self.key.clone(),
+                            value: "true".into(),
+                        }),
+                    }
+                } else {
+                    EventResponse::ignored()
+                }
+            }
+            _ => EventResponse::ignored(),
+        }
     }
 }
 
@@ -228,14 +324,23 @@ impl Widget for Toggle {
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
         let track_color = if self.value {
-            parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0))
+            parse_color(
+                &ctx.palette.colors.accent,
+                Color::new(0.537, 0.706, 0.98, 1.0),
+            )
         } else {
-            parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0))
+            parse_color(
+                &ctx.palette.colors.overlay,
+                Color::new(0.424, 0.439, 0.525, 1.0),
+            )
         };
         let thumb_color = if self.value {
             Color::new(1.0, 1.0, 1.0, 1.0)
         } else {
-            parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0))
+            parse_color(
+                &ctx.palette.colors.surface,
+                Color::new(0.192, 0.196, 0.267, 1.0),
+            )
         };
 
         fill_rounded_rect(
@@ -290,18 +395,101 @@ pub struct Slider {
     pub max: f64,
     pub step: f64,
     pub key: String,
+    editing: bool,
+    dragging: bool,
+    text_value: String,
+    cursor: usize,
 }
 
 impl Slider {
     pub fn new(key: impl Into<String>, value: f64, min: f64, max: f64, step: f64) -> Self {
+        let text_value = format_slider_value(value, step);
+        let cursor = text_value.chars().count();
         Self {
             key: key.into(),
             value,
             min,
             max,
             step,
+            editing: false,
+            dragging: false,
+            text_value,
+            cursor,
         }
     }
+
+    /// Update both the slider position and its coupled numeric text field.
+    pub fn set_value(&mut self, value: f64) {
+        self.value = value.clamp(self.min, self.max);
+        self.text_value = format_slider_value(self.value, self.step);
+        self.cursor = self.text_value.chars().count();
+    }
+
+    const VALUE_WIDTH: f32 = 72.0;
+    const VALUE_GAP: f32 = 12.0;
+
+    fn value_bounds(bounds: Rect) -> Rect {
+        Rect {
+            x: bounds.x + bounds.width - Self::VALUE_WIDTH,
+            y: bounds.y,
+            width: Self::VALUE_WIDTH,
+            height: bounds.height,
+        }
+    }
+
+    fn track_bounds(bounds: Rect) -> Rect {
+        Rect {
+            x: bounds.x,
+            y: bounds.y,
+            width: (bounds.width - Self::VALUE_WIDTH - Self::VALUE_GAP).max(24.0),
+            height: bounds.height,
+        }
+    }
+
+    fn set_from_x(&mut self, x: f32, bounds: Rect) {
+        let fraction = ((x - bounds.x) / bounds.width).clamp(0.0, 1.0) as f64;
+        let raw = self.min + (self.max - self.min) * fraction;
+        let stepped = if self.step > 0.0 {
+            ((raw - self.min) / self.step).round() * self.step + self.min
+        } else {
+            raw
+        };
+        self.value = stepped.clamp(self.min, self.max);
+        self.text_value = format_slider_value(self.value, self.step);
+        self.cursor = self.text_value.chars().count();
+    }
+
+    fn value_changed(&self) -> EventResponse {
+        EventResponse {
+            consumed: true,
+            action: Some(WidgetAction::ValueChanged {
+                key: self.key.clone(),
+                value: self.value.to_string(),
+            }),
+        }
+    }
+
+    fn accept_text_value(&mut self) -> Option<EventResponse> {
+        let parsed = self.text_value.parse::<f64>().ok()?;
+        if !parsed.is_finite() {
+            return None;
+        }
+        self.value = parsed.clamp(self.min, self.max);
+        Some(self.value_changed())
+    }
+}
+
+fn format_slider_value(value: f64, step: f64) -> String {
+    let precision = if step >= 1.0 {
+        0
+    } else if step >= 0.1 {
+        1
+    } else if step >= 0.01 {
+        2
+    } else {
+        3
+    };
+    format!("{value:.precision$}")
 }
 
 impl Widget for Slider {
@@ -312,15 +500,39 @@ impl Widget for Slider {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let accent = parse_color(
+            &ctx.palette.colors.accent,
+            Color::new(0.537, 0.706, 0.98, 1.0),
+        );
 
+        let value_bounds = Self::value_bounds(bounds);
+        let track_bounds = Self::track_bounds(bounds);
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
+        let foreground = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
         let track_h = 4.0;
         let thumb_size = 16.0;
-        let track_y = bounds.y + (bounds.height - track_h) / 2.0;
+        let track_y = track_bounds.y + (track_bounds.height - track_h) / 2.0;
 
         // Track background
-        fill_rounded_rect(pixmap, bounds.x, track_y, bounds.width, track_h, track_h / 2.0, surface);
+        fill_rounded_rect(
+            pixmap,
+            track_bounds.x,
+            track_y,
+            track_bounds.width,
+            track_h,
+            track_h / 2.0,
+            surface,
+        );
 
         let range = (self.max - self.min) as f32;
         let fraction = if range > 0.0 {
@@ -328,40 +540,168 @@ impl Widget for Slider {
         } else {
             0.0
         };
-        let fill_w = fraction * bounds.width;
+        let fill_w = fraction * track_bounds.width;
 
         // Filled portion
         if fill_w > 0.0 {
-            fill_rounded_rect(pixmap, bounds.x, track_y, fill_w, track_h, track_h / 2.0, accent);
+            fill_rounded_rect(
+                pixmap,
+                track_bounds.x,
+                track_y,
+                fill_w,
+                track_h,
+                track_h / 2.0,
+                accent,
+            );
         }
 
         // Thumb circle
-        let thumb_x = bounds.x + fill_w - thumb_size / 2.0;
-        let thumb_y = bounds.y + (bounds.height - thumb_size) / 2.0;
-        fill_rounded_rect(pixmap, thumb_x, thumb_y, thumb_size, thumb_size, thumb_size / 2.0, accent);
+        let thumb_x = track_bounds.x + fill_w - thumb_size / 2.0;
+        let thumb_y = track_bounds.y + (track_bounds.height - thumb_size) / 2.0;
+        fill_rounded_rect(
+            pixmap,
+            thumb_x,
+            thumb_y,
+            thumb_size,
+            thumb_size,
+            thumb_size / 2.0,
+            accent,
+        );
+
+        let border = if self.editing { accent } else { overlay };
+        fill_rounded_rect(
+            pixmap,
+            value_bounds.x,
+            value_bounds.y,
+            value_bounds.width,
+            value_bounds.height,
+            5.0,
+            border,
+        );
+        fill_rounded_rect(
+            pixmap,
+            value_bounds.x + 1.0,
+            value_bounds.y + 1.0,
+            value_bounds.width - 2.0,
+            value_bounds.height - 2.0,
+            4.0,
+            surface,
+        );
+        let font_size = (ctx.palette.fonts.size as f32 - 1.0).max(9.0);
+        ctx.text.draw_text(
+            pixmap,
+            &self.text_value,
+            value_bounds.x + 7.0,
+            value_bounds.y + (value_bounds.height - font_size * 1.3) / 2.0,
+            font_size,
+            foreground,
+            value_bounds.width - 14.0,
+        );
     }
 
     fn event(&mut self, event: &Event, bounds: &Rect) -> EventResponse {
-        let x = match event {
-            Event::PointerDown { x, y } | Event::PointerUp { x, y } if bounds.contains(*x, *y) => *x,
-            // PointerMove is forwarded by FormLayout only when this widget is being dragged
-            Event::PointerMove { x, .. } => *x,
-            _ => return EventResponse::ignored(),
-        };
-        let fraction = ((x - bounds.x) / bounds.width).clamp(0.0, 1.0) as f64;
-        let raw = self.min + (self.max - self.min) * fraction;
-        let stepped = if self.step > 0.0 {
-            (raw / self.step).round() * self.step
-        } else {
-            raw
-        };
-        self.value = stepped.clamp(self.min, self.max);
-        EventResponse {
-            consumed: true,
-            action: Some(WidgetAction::ValueChanged {
-                key: self.key.clone(),
-                value: self.value.to_string(),
-            }),
+        let track_bounds = Self::track_bounds(*bounds);
+        let value_bounds = Self::value_bounds(*bounds);
+        match event {
+            Event::PointerDown { x, y } if value_bounds.contains(*x, *y) => {
+                self.editing = true;
+                self.dragging = false;
+                self.cursor = self.text_value.chars().count();
+                EventResponse {
+                    consumed: true,
+                    action: None,
+                }
+            }
+            Event::PointerUp { x, y } if value_bounds.contains(*x, *y) => EventResponse {
+                consumed: true,
+                action: None,
+            },
+            Event::PointerDown { x, y } if track_bounds.contains(*x, *y) => {
+                self.editing = false;
+                self.dragging = true;
+                self.set_from_x(*x, track_bounds);
+                self.value_changed()
+            }
+            Event::PointerMove { x, .. } if self.dragging => {
+                self.set_from_x(*x, track_bounds);
+                self.value_changed()
+            }
+            Event::PointerUp { x, .. } if self.dragging => {
+                self.dragging = false;
+                self.set_from_x(*x, track_bounds);
+                self.value_changed()
+            }
+            Event::PointerUp { x, y } if track_bounds.contains(*x, *y) => {
+                self.editing = false;
+                self.set_from_x(*x, track_bounds);
+                self.value_changed()
+            }
+            Event::KeyPress { key, utf8 } if self.editing => {
+                match key.as_str() {
+                    "Escape" => {
+                        self.editing = false;
+                        self.text_value = format_slider_value(self.value, self.step);
+                        self.cursor = self.text_value.chars().count();
+                        return EventResponse {
+                            consumed: true,
+                            action: None,
+                        };
+                    }
+                    "Return" => {
+                        self.editing = false;
+                        if let Some(response) = self.accept_text_value() {
+                            self.text_value = format_slider_value(self.value, self.step);
+                            self.cursor = self.text_value.chars().count();
+                            return response;
+                        }
+                    }
+                    "BackSpace" if self.cursor > 0 => {
+                        let byte = self
+                            .text_value
+                            .char_indices()
+                            .nth(self.cursor - 1)
+                            .map(|(index, _)| index)
+                            .unwrap_or(0);
+                        self.text_value.remove(byte);
+                        self.cursor -= 1;
+                    }
+                    "Delete" if self.cursor < self.text_value.chars().count() => {
+                        let byte = self
+                            .text_value
+                            .char_indices()
+                            .nth(self.cursor)
+                            .map(|(index, _)| index)
+                            .unwrap_or(self.text_value.len());
+                        self.text_value.remove(byte);
+                    }
+                    "Left" => self.cursor = self.cursor.saturating_sub(1),
+                    "Right" => self.cursor = (self.cursor + 1).min(self.text_value.chars().count()),
+                    "Home" => self.cursor = 0,
+                    "End" => self.cursor = self.text_value.chars().count(),
+                    _ => {
+                        if let Some(text) = utf8 {
+                            for character in text.chars().filter(|character| {
+                                character.is_ascii_digit()
+                                    || matches!(character, '.' | '-' | '+' | 'e' | 'E')
+                            }) {
+                                let byte = self
+                                    .text_value
+                                    .char_indices()
+                                    .nth(self.cursor)
+                                    .map(|(index, _)| index)
+                                    .unwrap_or(self.text_value.len());
+                                self.text_value.insert(byte, character);
+                                self.cursor += 1;
+                            }
+                        }
+                    }
+                }
+                self.accept_text_value().unwrap_or(EventResponse {
+                    consumed: true,
+                    action: None,
+                })
+            }
+            _ => EventResponse::ignored(),
         }
     }
 }
@@ -396,17 +736,46 @@ impl Widget for Dropdown {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
         // Closed header box (always painted here; option list is in paint_overlay)
-        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, Self::CLOSED_H, 6.0, surface);
+        fill_rounded_rect(
+            pixmap,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            Self::CLOSED_H,
+            6.0,
+            surface,
+        );
 
-        let selected_text = self.options.get(self.selected).map(|s| s.as_str()).unwrap_or("");
+        let selected_text = self
+            .options
+            .get(self.selected)
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let text_y = bounds.y + (Self::CLOSED_H - font_size * 1.3) / 2.0;
-        ctx.text.draw_text(pixmap, selected_text, bounds.x + 8.0, text_y, font_size, fg, bounds.width - 32.0);
+        ctx.text.draw_text(
+            pixmap,
+            selected_text,
+            bounds.x + 8.0,
+            text_y,
+            font_size,
+            fg,
+            bounds.width - 32.0,
+        );
 
         let chevron_cx = bounds.x + bounds.width - 14.0;
         let chevron_cy = bounds.y + Self::CLOSED_H / 2.0;
@@ -417,10 +786,22 @@ impl Widget for Dropdown {
         if !self.open {
             return;
         }
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
-        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let accent = parse_color(
+            &ctx.palette.colors.accent,
+            Color::new(0.537, 0.706, 0.98, 1.0),
+        );
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
         let list_y = bounds.y + Self::CLOSED_H;
@@ -429,14 +810,24 @@ impl Widget for Dropdown {
         // Drop shadow (offset dark rect behind the list)
         fill_rounded_rect(
             pixmap,
-            bounds.x + 2.0, list_y + 2.0,
-            bounds.width, list_h,
+            bounds.x + 2.0,
+            list_y + 2.0,
+            bounds.width,
+            list_h,
             6.0,
             Color::new(0.0, 0.0, 0.0, 0.3),
         );
 
         // 1px border using overlay color
-        fill_rounded_rect(pixmap, bounds.x - 1.0, list_y - 1.0, bounds.width + 2.0, list_h + 2.0, 7.0, overlay);
+        fill_rounded_rect(
+            pixmap,
+            bounds.x - 1.0,
+            list_y - 1.0,
+            bounds.width + 2.0,
+            list_h + 2.0,
+            7.0,
+            overlay,
+        );
 
         // Solid background
         fill_rounded_rect(pixmap, bounds.x, list_y, bounds.width, list_h, 6.0, surface);
@@ -448,14 +839,22 @@ impl Widget for Dropdown {
             if is_selected {
                 // 40% accent background
                 fill_rounded_rect(
-                    pixmap, bounds.x, oy, bounds.width, Self::OPTION_H, 0.0,
+                    pixmap,
+                    bounds.x,
+                    oy,
+                    bounds.width,
+                    Self::OPTION_H,
+                    0.0,
                     Color::new(accent.r, accent.g, accent.b, 0.4),
                 );
                 // Selection dot
                 fill_rounded_rect(
                     pixmap,
-                    bounds.x + 6.0, oy + Self::OPTION_H / 2.0 - 3.0,
-                    6.0, 6.0, 3.0,
+                    bounds.x + 6.0,
+                    oy + Self::OPTION_H / 2.0 - 3.0,
+                    6.0,
+                    6.0,
+                    3.0,
                     accent,
                 );
             }
@@ -463,7 +862,15 @@ impl Widget for Dropdown {
             let text_oy = oy + (Self::OPTION_H - font_size * 1.3) / 2.0;
             let text_x = bounds.x + if is_selected { 20.0 } else { 8.0 };
             let color = if is_selected { accent } else { fg };
-            ctx.text.draw_text(pixmap, option, text_x, text_oy, font_size, color, bounds.width - 24.0);
+            ctx.text.draw_text(
+                pixmap,
+                option,
+                text_x,
+                text_oy,
+                font_size,
+                color,
+                bounds.width - 24.0,
+            );
         }
     }
 
@@ -489,13 +896,21 @@ impl Widget for Dropdown {
             };
             if header.contains(*x, *y) {
                 self.open = !self.open;
-                return EventResponse { consumed: true, action: None };
+                return EventResponse {
+                    consumed: true,
+                    action: None,
+                };
             }
             if self.open {
                 let list_y = bounds.y + Self::CLOSED_H;
                 for (i, _) in self.options.iter().enumerate() {
                     let oy = list_y + i as f32 * Self::OPTION_H;
-                    let opt_rect = Rect { x: bounds.x, y: oy, width: bounds.width, height: Self::OPTION_H };
+                    let opt_rect = Rect {
+                        x: bounds.x,
+                        y: oy,
+                        width: bounds.width,
+                        height: Self::OPTION_H,
+                    };
                     if opt_rect.contains(*x, *y) {
                         self.selected = i;
                         self.open = false;
@@ -591,16 +1006,41 @@ impl Widget for SearchableDropdown {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
-        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, Self::CLOSED_H, 6.0, surface);
+        fill_rounded_rect(
+            pixmap,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            Self::CLOSED_H,
+            6.0,
+            surface,
+        );
 
         let label = self.display_label();
         let text_y = bounds.y + (Self::CLOSED_H - font_size * 1.3) / 2.0;
-        ctx.text.draw_text(pixmap, label, bounds.x + 8.0, text_y, font_size, fg, bounds.width - 32.0);
+        ctx.text.draw_text(
+            pixmap,
+            label,
+            bounds.x + 8.0,
+            text_y,
+            font_size,
+            fg,
+            bounds.width - 32.0,
+        );
 
         let chevron_cx = bounds.x + bounds.width - 14.0;
         let chevron_cy = bounds.y + Self::CLOSED_H / 2.0;
@@ -611,10 +1051,22 @@ impl Widget for SearchableDropdown {
         if !self.open {
             return;
         }
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
-        let overlay_color = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let accent = parse_color(
+            &ctx.palette.colors.accent,
+            Color::new(0.537, 0.706, 0.98, 1.0),
+        );
+        let overlay_color = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
         let visible_count = self.filtered_indices.len().min(Self::MAX_VISIBLE);
@@ -625,31 +1077,59 @@ impl Widget for SearchableDropdown {
         // Drop shadow
         fill_rounded_rect(
             pixmap,
-            bounds.x + 2.0, panel_y + 2.0,
-            bounds.width, panel_h,
+            bounds.x + 2.0,
+            panel_y + 2.0,
+            bounds.width,
+            panel_h,
             6.0,
             Color::new(0.0, 0.0, 0.0, 0.3),
         );
 
         // Border
-        fill_rounded_rect(pixmap, bounds.x - 1.0, panel_y - 1.0, bounds.width + 2.0, panel_h + 2.0, 7.0, overlay_color);
-
-        // Background
-        fill_rounded_rect(pixmap, bounds.x, panel_y, bounds.width, panel_h, 6.0, surface);
-
-        // Filter input row
-        let filter_border = if !self.custom_mode { accent } else { overlay_color };
         fill_rounded_rect(
             pixmap,
-            bounds.x + 4.0, panel_y + 4.0,
-            bounds.width - 8.0, Self::FILTER_H - 8.0,
-            4.0, filter_border,
+            bounds.x - 1.0,
+            panel_y - 1.0,
+            bounds.width + 2.0,
+            panel_h + 2.0,
+            7.0,
+            overlay_color,
+        );
+
+        // Background
+        fill_rounded_rect(
+            pixmap,
+            bounds.x,
+            panel_y,
+            bounds.width,
+            panel_h,
+            6.0,
+            surface,
+        );
+
+        // Filter input row
+        let filter_border = if !self.custom_mode {
+            accent
+        } else {
+            overlay_color
+        };
+        fill_rounded_rect(
+            pixmap,
+            bounds.x + 4.0,
+            panel_y + 4.0,
+            bounds.width - 8.0,
+            Self::FILTER_H - 8.0,
+            4.0,
+            filter_border,
         );
         fill_rounded_rect(
             pixmap,
-            bounds.x + 5.0, panel_y + 5.0,
-            bounds.width - 10.0, Self::FILTER_H - 10.0,
-            3.0, surface,
+            bounds.x + 5.0,
+            panel_y + 5.0,
+            bounds.width - 10.0,
+            Self::FILTER_H - 10.0,
+            3.0,
+            surface,
         );
         let (filter_display, filter_fg) = if self.filter_text.is_empty() {
             ("Type to filter...", overlay_color)
@@ -658,28 +1138,44 @@ impl Widget for SearchableDropdown {
         };
         let filter_y = panel_y + (Self::FILTER_H - font_size * 1.3) / 2.0;
         ctx.text.draw_text(
-            pixmap, filter_display,
-            bounds.x + 12.0, filter_y,
-            font_size, filter_fg,
+            pixmap,
+            filter_display,
+            bounds.x + 12.0,
+            filter_y,
+            font_size,
+            filter_fg,
             bounds.width - 24.0,
         );
 
         // Option rows
         let opts_start_y = panel_y + Self::FILTER_H;
-        for (slot, &idx) in self.filtered_indices.iter().take(Self::MAX_VISIBLE).enumerate() {
+        for (slot, &idx) in self
+            .filtered_indices
+            .iter()
+            .take(Self::MAX_VISIBLE)
+            .enumerate()
+        {
             let (value, label) = &self.options[idx];
             let oy = opts_start_y + slot as f32 * Self::OPTION_H;
             let is_selected = *value == self.selected_value;
 
             if is_selected {
                 fill_rounded_rect(
-                    pixmap, bounds.x, oy, bounds.width, Self::OPTION_H, 0.0,
+                    pixmap,
+                    bounds.x,
+                    oy,
+                    bounds.width,
+                    Self::OPTION_H,
+                    0.0,
                     Color::new(accent.r, accent.g, accent.b, 0.4),
                 );
                 fill_rounded_rect(
                     pixmap,
-                    bounds.x + 6.0, oy + Self::OPTION_H / 2.0 - 3.0,
-                    6.0, 6.0, 3.0,
+                    bounds.x + 6.0,
+                    oy + Self::OPTION_H / 2.0 - 3.0,
+                    6.0,
+                    6.0,
+                    3.0,
                     accent,
                 );
             }
@@ -687,7 +1183,15 @@ impl Widget for SearchableDropdown {
             let text_oy = oy + (Self::OPTION_H - font_size * 1.3) / 2.0;
             let text_x = bounds.x + if is_selected { 20.0 } else { 8.0 };
             let color = if is_selected { accent } else { fg };
-            ctx.text.draw_text(pixmap, label, text_x, text_oy, font_size, color, bounds.width - 24.0);
+            ctx.text.draw_text(
+                pixmap,
+                label,
+                text_x,
+                text_oy,
+                font_size,
+                color,
+                bounds.width - 24.0,
+            );
         }
 
         // "Other..." row
@@ -695,22 +1199,33 @@ impl Widget for SearchableDropdown {
         let other_y = opts_start_y + other_slot as f32 * Self::OPTION_H;
         if self.custom_mode {
             fill_rounded_rect(
-                pixmap, bounds.x, other_y, bounds.width, Self::OPTION_H, 0.0,
+                pixmap,
+                bounds.x,
+                other_y,
+                bounds.width,
+                Self::OPTION_H,
+                0.0,
                 Color::new(0.0, 0.0, 0.0, 0.15),
             );
             let text_oy = other_y + (Self::OPTION_H - font_size * 1.3) / 2.0;
             ctx.text.draw_text(
-                pixmap, &self.custom_value,
-                bounds.x + 8.0, text_oy,
-                font_size, fg,
+                pixmap,
+                &self.custom_value,
+                bounds.x + 8.0,
+                text_oy,
+                font_size,
+                fg,
                 bounds.width - 24.0,
             );
         } else {
             let text_oy = other_y + (Self::OPTION_H - font_size * 1.3) / 2.0;
             ctx.text.draw_text(
-                pixmap, "Other...",
-                bounds.x + 8.0, text_oy,
-                font_size, overlay_color,
+                pixmap,
+                "Other...",
+                bounds.x + 8.0,
+                text_oy,
+                font_size,
+                overlay_color,
                 bounds.width - 24.0,
             );
         }
@@ -740,14 +1255,22 @@ impl Widget for SearchableDropdown {
         match event {
             Event::PointerUp { x, y } => {
                 // Header click: toggle open/closed
-                let header = Rect { x: bounds.x, y: bounds.y, width: bounds.width, height: Self::CLOSED_H };
+                let header = Rect {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: Self::CLOSED_H,
+                };
                 if header.contains(*x, *y) {
                     if self.open {
                         self.dismiss_overlay();
                     } else {
                         self.open = true;
                     }
-                    return EventResponse { consumed: true, action: None };
+                    return EventResponse {
+                        consumed: true,
+                        action: None,
+                    };
                 }
 
                 if self.open {
@@ -759,7 +1282,12 @@ impl Widget for SearchableDropdown {
                     for slot in 0..visible_count {
                         let idx = self.filtered_indices[slot];
                         let oy = opts_start_y + slot as f32 * Self::OPTION_H;
-                        let opt_rect = Rect { x: bounds.x, y: oy, width: bounds.width, height: Self::OPTION_H };
+                        let opt_rect = Rect {
+                            x: bounds.x,
+                            y: oy,
+                            width: bounds.width,
+                            height: Self::OPTION_H,
+                        };
                         if opt_rect.contains(*x, *y) {
                             let (value, _) = &self.options[idx];
                             let emitted = value.clone();
@@ -777,7 +1305,12 @@ impl Widget for SearchableDropdown {
 
                     // "Other..." row click
                     let other_y = opts_start_y + visible_count as f32 * Self::OPTION_H;
-                    let other_rect = Rect { x: bounds.x, y: other_y, width: bounds.width, height: Self::OPTION_H };
+                    let other_rect = Rect {
+                        x: bounds.x,
+                        y: other_y,
+                        width: bounds.width,
+                        height: Self::OPTION_H,
+                    };
                     if other_rect.contains(*x, *y) {
                         if self.custom_mode {
                             // Commit custom value
@@ -795,83 +1328,90 @@ impl Widget for SearchableDropdown {
                             self.custom_mode = true;
                             self.custom_value = self.selected_value.clone();
                             self.custom_cursor = self.custom_value.chars().count();
-                            return EventResponse { consumed: true, action: None };
+                            return EventResponse {
+                                consumed: true,
+                                action: None,
+                            };
                         }
                     }
                 }
             }
 
-            Event::KeyPress { key, utf8 } if self.open => {
-                match key.as_str() {
-                    "BackSpace" => {
-                        if self.custom_mode {
-                            if self.custom_cursor > 0 {
-                                let byte_pos = self
-                                    .custom_value
-                                    .char_indices()
-                                    .nth(self.custom_cursor - 1)
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(0);
-                                self.custom_value.remove(byte_pos);
-                                self.custom_cursor -= 1;
-                            }
-                        } else {
-                            self.filter_text.pop();
-                            self.rebuild_filter();
+            Event::KeyPress { key, utf8 } if self.open => match key.as_str() {
+                "BackSpace" => {
+                    if self.custom_mode {
+                        if self.custom_cursor > 0 {
+                            let byte_pos = self
+                                .custom_value
+                                .char_indices()
+                                .nth(self.custom_cursor - 1)
+                                .map(|(i, _)| i)
+                                .unwrap_or(0);
+                            self.custom_value.remove(byte_pos);
+                            self.custom_cursor -= 1;
                         }
-                        return EventResponse { consumed: true, action: None };
+                    } else {
+                        self.filter_text.pop();
+                        self.rebuild_filter();
                     }
-                    "Return" | "KP_Enter" => {
-                        if self.custom_mode {
-                            let emitted = self.custom_value.clone();
-                            self.selected_value = emitted.clone();
-                            self.dismiss_overlay();
-                            return EventResponse {
-                                consumed: true,
-                                action: Some(WidgetAction::ValueChanged {
-                                    key: self.key.clone(),
-                                    value: emitted,
-                                }),
-                            };
-                        } else if !self.filtered_indices.is_empty() {
-                            let idx = self.filtered_indices[0];
-                            let (value, _) = &self.options[idx];
-                            let emitted = value.clone();
-                            self.selected_value = emitted.clone();
-                            self.dismiss_overlay();
-                            return EventResponse {
-                                consumed: true,
-                                action: Some(WidgetAction::ValueChanged {
-                                    key: self.key.clone(),
-                                    value: emitted,
-                                }),
-                            };
-                        }
-                    }
-                    _ => {
-                        if let Some(s) = utf8 {
-                            for ch in s.chars() {
-                                if !ch.is_control() {
-                                    if self.custom_mode {
-                                        let byte_pos = self
-                                            .custom_value
-                                            .char_indices()
-                                            .nth(self.custom_cursor)
-                                            .map(|(i, _)| i)
-                                            .unwrap_or(self.custom_value.len());
-                                        self.custom_value.insert(byte_pos, ch);
-                                        self.custom_cursor += 1;
-                                    } else {
-                                        self.filter_text.push(ch);
-                                        self.rebuild_filter();
-                                    }
-                                }
-                            }
-                            return EventResponse { consumed: true, action: None };
-                        }
+                    return EventResponse {
+                        consumed: true,
+                        action: None,
+                    };
+                }
+                "Return" | "KP_Enter" => {
+                    if self.custom_mode {
+                        let emitted = self.custom_value.clone();
+                        self.selected_value = emitted.clone();
+                        self.dismiss_overlay();
+                        return EventResponse {
+                            consumed: true,
+                            action: Some(WidgetAction::ValueChanged {
+                                key: self.key.clone(),
+                                value: emitted,
+                            }),
+                        };
+                    } else if !self.filtered_indices.is_empty() {
+                        let idx = self.filtered_indices[0];
+                        let (value, _) = &self.options[idx];
+                        let emitted = value.clone();
+                        self.selected_value = emitted.clone();
+                        self.dismiss_overlay();
+                        return EventResponse {
+                            consumed: true,
+                            action: Some(WidgetAction::ValueChanged {
+                                key: self.key.clone(),
+                                value: emitted,
+                            }),
+                        };
                     }
                 }
-            }
+                _ => {
+                    if let Some(s) = utf8 {
+                        for ch in s.chars() {
+                            if !ch.is_control() {
+                                if self.custom_mode {
+                                    let byte_pos = self
+                                        .custom_value
+                                        .char_indices()
+                                        .nth(self.custom_cursor)
+                                        .map(|(i, _)| i)
+                                        .unwrap_or(self.custom_value.len());
+                                    self.custom_value.insert(byte_pos, ch);
+                                    self.custom_cursor += 1;
+                                } else {
+                                    self.filter_text.push(ch);
+                                    self.rebuild_filter();
+                                }
+                            }
+                        }
+                        return EventResponse {
+                            consumed: true,
+                            action: None,
+                        };
+                    }
+                }
+            },
 
             _ => {}
         }
@@ -906,16 +1446,36 @@ impl Widget for TextInput {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let surface = parse_color(&ctx.palette.colors.surface, Color::new(0.192, 0.196, 0.267, 1.0));
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let accent = parse_color(&ctx.palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
-        let overlay = parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let surface = parse_color(
+            &ctx.palette.colors.surface,
+            Color::new(0.192, 0.196, 0.267, 1.0),
+        );
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let accent = parse_color(
+            &ctx.palette.colors.accent,
+            Color::new(0.537, 0.706, 0.98, 1.0),
+        );
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
         let border_color = if self.focused { accent } else { overlay };
 
         // Border + background (draw border by painting bg slightly inside border)
-        fill_rounded_rect(pixmap, bounds.x, bounds.y, bounds.width, bounds.height, 6.0, border_color);
+        fill_rounded_rect(
+            pixmap,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+            6.0,
+            border_color,
+        );
         fill_rounded_rect(
             pixmap,
             bounds.x + 1.0,
@@ -927,8 +1487,15 @@ impl Widget for TextInput {
         );
 
         let text_y = bounds.y + (bounds.height - font_size * 1.3) / 2.0;
-        ctx.text
-            .draw_text(pixmap, &self.value, bounds.x + 8.0, text_y, font_size, fg, bounds.width - 24.0);
+        ctx.text.draw_text(
+            pixmap,
+            &self.value,
+            bounds.x + 8.0,
+            text_y,
+            font_size,
+            fg,
+            bounds.width - 24.0,
+        );
 
         if self.focused {
             let char_w = font_size * 0.6;
@@ -945,7 +1512,10 @@ impl Widget for TextInput {
                 let was_focused = self.focused;
                 self.focused = bounds.contains(*x, *y);
                 if was_focused != self.focused {
-                    return EventResponse { consumed: self.focused, action: None };
+                    return EventResponse {
+                        consumed: self.focused,
+                        action: None,
+                    };
                 }
             }
             Event::KeyPress { key, utf8 } if self.focused => {
@@ -1043,20 +1613,39 @@ impl Widget for ColorPicker {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32;
 
         let square_size = 24.0;
         let square_x = bounds.x + 4.0;
         let square_y = bounds.y + (bounds.height - square_size) / 2.0;
 
-        fill_rounded_rect(pixmap, square_x, square_y, square_size, square_size, 4.0, self.value);
+        fill_rounded_rect(
+            pixmap,
+            square_x,
+            square_y,
+            square_size,
+            square_size,
+            4.0,
+            self.value,
+        );
 
         let hex = self.value.to_hex();
         let text_x = square_x + square_size + 8.0;
         let text_y = bounds.y + (bounds.height - font_size * 1.3) / 2.0;
         let text_max_w = (bounds.x + bounds.width) - text_x;
-        ctx.text.draw_text(pixmap, &hex, text_x, text_y, font_size, fg, text_max_w.max(0.0));
+        ctx.text.draw_text(
+            pixmap,
+            &hex,
+            text_x,
+            text_y,
+            font_size,
+            fg,
+            text_max_w.max(0.0),
+        );
     }
 }
 
@@ -1067,7 +1656,9 @@ pub struct SectionHeader {
 
 impl SectionHeader {
     pub fn new(title: impl Into<String>) -> Self {
-        Self { title: title.into() }
+        Self {
+            title: title.into(),
+        }
     }
 }
 
@@ -1079,13 +1670,26 @@ impl Widget for SectionHeader {
     }
 
     fn paint(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
-        let fg = parse_color(&ctx.palette.colors.foreground, Color::new(0.804, 0.839, 0.957, 1.0));
-        let overlay =
-            parse_color(&ctx.palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 1.0));
+        let fg = parse_color(
+            &ctx.palette.colors.foreground,
+            Color::new(0.804, 0.839, 0.957, 1.0),
+        );
+        let overlay = parse_color(
+            &ctx.palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 1.0),
+        );
         let font_size = ctx.palette.fonts.size as f32 + 2.0;
 
         let text_y = bounds.y + (bounds.height - 1.0 - font_size * 1.3) / 2.0;
-        ctx.text.draw_text(pixmap, &self.title, bounds.x, text_y, font_size, fg, bounds.width);
+        ctx.text.draw_text(
+            pixmap,
+            &self.title,
+            bounds.x,
+            text_y,
+            font_size,
+            fg,
+            bounds.width,
+        );
 
         // Separator line at the bottom
         fill_rounded_rect(
@@ -1128,7 +1732,10 @@ impl ScrollArea {
 
     /// Return `(top, bottom)` of the currently visible region in content space.
     pub fn visible_range(&self) -> (f32, f32) {
-        (self.scroll_offset, self.scroll_offset + self.viewport_height)
+        (
+            self.scroll_offset,
+            self.scroll_offset + self.viewport_height,
+        )
     }
 
     /// Draw the scrollbar track and thumb if content overflows the viewport.
@@ -1137,14 +1744,25 @@ impl ScrollArea {
             return;
         }
 
-        let overlay = parse_color(&palette.colors.overlay, Color::new(0.424, 0.439, 0.525, 0.5));
+        let overlay = parse_color(
+            &palette.colors.overlay,
+            Color::new(0.424, 0.439, 0.525, 0.5),
+        );
         let accent = parse_color(&palette.colors.accent, Color::new(0.537, 0.706, 0.98, 1.0));
 
         let sb_w = 6.0;
         let sb_x = bounds.x + bounds.width - sb_w;
 
         // Track
-        fill_rounded_rect(pixmap, sb_x, bounds.y, sb_w, bounds.height, sb_w / 2.0, overlay);
+        fill_rounded_rect(
+            pixmap,
+            sb_x,
+            bounds.y,
+            sb_w,
+            bounds.height,
+            sb_w / 2.0,
+            overlay,
+        );
 
         // Thumb
         let thumb_h = (self.viewport_height / self.content_height * bounds.height).max(20.0);
@@ -1178,7 +1796,12 @@ mod tests {
     #[test]
     fn toggle_event_toggles_value() {
         let mut toggle = Toggle::new("brightness", false);
-        let bounds = Rect { x: 0.0, y: 0.0, width: 44.0, height: 24.0 };
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 44.0,
+            height: 24.0,
+        };
         let resp = toggle.event(&Event::PointerUp { x: 22.0, y: 12.0 }, &bounds);
         assert!(resp.consumed);
         assert!(toggle.value);
@@ -1195,16 +1818,73 @@ mod tests {
     #[test]
     fn slider_event_updates_value() {
         let mut slider = Slider::new("vol", 0.0, 0.0, 100.0, 1.0);
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
-        let resp = slider.event(&Event::PointerUp { x: 100.0, y: 16.0 }, &bounds);
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
+        let resp = slider.event(&Event::PointerUp { x: 58.0, y: 16.0 }, &bounds);
         assert!(resp.consumed);
         assert!((slider.value - 50.0).abs() < 1.0);
     }
 
     #[test]
+    fn slider_text_entry_updates_numeric_value() {
+        let mut slider = Slider::new("scale", 1.0, 0.5, 3.0, 0.25);
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
+        slider.event(&Event::PointerDown { x: 170.0, y: 16.0 }, &bounds);
+        for _ in 0..3 {
+            slider.event(
+                &Event::KeyPress {
+                    key: "BackSpace".into(),
+                    utf8: None,
+                },
+                &bounds,
+            );
+        }
+        slider.event(
+            &Event::KeyPress {
+                key: "2".into(),
+                utf8: Some("2".into()),
+            },
+            &bounds,
+        );
+        slider.event(
+            &Event::KeyPress {
+                key: ".".into(),
+                utf8: Some(".".into()),
+            },
+            &bounds,
+        );
+        let response = slider.event(
+            &Event::KeyPress {
+                key: "5".into(),
+                utf8: Some("5".into()),
+            },
+            &bounds,
+        );
+        assert!((slider.value - 2.5).abs() < f64::EPSILON);
+        assert!(matches!(
+            response.action,
+            Some(WidgetAction::ValueChanged { value, .. }) if value == "2.5"
+        ));
+    }
+
+    #[test]
     fn dropdown_toggles_open() {
         let mut dd = Dropdown::new("layout", vec!["dwindle".into(), "master".into()], 0);
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
         dd.event(&Event::PointerUp { x: 50.0, y: 16.0 }, &bounds);
         assert!(dd.open);
     }
@@ -1213,9 +1893,17 @@ mod tests {
     fn text_input_inserts_text() {
         let mut input = TextInput::new("name", "");
         input.focused = true;
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
         input.event(
-            &Event::KeyPress { key: "a".into(), utf8: Some("a".into()) },
+            &Event::KeyPress {
+                key: "a".into(),
+                utf8: Some("a".into()),
+            },
             &bounds,
         );
         assert_eq!(input.value, "a");
@@ -1227,8 +1915,19 @@ mod tests {
         let mut input = TextInput::new("name", "hello");
         input.focused = true;
         input.cursor_pos = 5;
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
-        input.event(&Event::KeyPress { key: "BackSpace".into(), utf8: None }, &bounds);
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
+        input.event(
+            &Event::KeyPress {
+                key: "BackSpace".into(),
+                utf8: None,
+            },
+            &bounds,
+        );
         assert_eq!(input.value, "hell");
         assert_eq!(input.cursor_pos, 4);
     }

@@ -14,7 +14,10 @@ root README or repository-wide contributor guide.
 - [Development](development.md) — prerequisites and the validation ladder.
 - [Runtime safety](runtime-safety.md) — configuration, IPC, and external-state
   safeguards.
-- [Decisions](decisions/README.md) — decision-record policy and future architectural records.
+- [Release guide](release.md) — release artifacts, crates.io publication order,
+  and AUR preparation.
+- [Decisions](decisions/README.md) — decision-record policy and accepted
+  cross-cutting choices, including the [HyprDeck CLI contract](decisions/0001-hyprdeck-cli-contract.md).
 
 ## Authority and freshness
 

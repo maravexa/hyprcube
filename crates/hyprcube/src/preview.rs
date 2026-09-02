@@ -30,10 +30,13 @@ impl PreviewEngine {
             }
         };
 
-        let runtime =
-            tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+        let runtime = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
-        Self { ipc, undo_stack: UndoStack::new(), runtime }
+        Self {
+            ipc,
+            undo_stack: UndoStack::new(),
+            runtime,
+        }
     }
 
     /// Apply a live preview via IPC and push the old value onto the undo stack.

@@ -1,7 +1,15 @@
 [package]
 name = "hyprcube"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "A Wayland-native settings application for Hyprland"
+keywords = ["wayland", "hyprland", "settings", "configuration"]
+categories = ["gui", "config"]
 
 [dependencies]
 hyprcube-core = { workspace = true }
@@ -17,3 +25,26 @@ cosmic-text = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
+
+[package.metadata.deb]
+maintainer = "Mara Vexa"
+copyright = "2026, Mara Vexa"
+license-file = ["../../LICENSE", "0"]
+extended-description = "HyprCube is a Wayland-native settings application for Hyprland."
+depends = "$auto, git"
+section = "utils"
+priority = "optional"
+assets = [
+  ["target/release/hyprcube", "usr/bin/", "755"],
+  ["../../README.md", "usr/share/doc/hyprcube/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/hyprcube", dest = "/usr/bin/hyprcube", mode = "755" },
+  { source = "../../README.md", dest = "/usr/share/doc/hyprcube/README.md", mode = "644" },
+  { source = "../../LICENSE", dest = "/usr/share/licenses/hyprcube/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+git = "*"

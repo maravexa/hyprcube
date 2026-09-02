@@ -10,6 +10,7 @@ const ICON_LEFT: f32 = 16.0;
 const TEXT_LEFT: f32 = 44.0;
 
 /// Paint the sidebar onto the pixmap.
+#[allow(clippy::too_many_arguments)] // The sidebar renderer consumes the complete frame palette and geometry.
 pub fn paint(
     pixmap: &mut PixmapMut<'_>,
     text_renderer: &mut TextRenderer,
@@ -57,7 +58,9 @@ pub fn paint(
         } else {
             accent_color
         };
-        fill_rounded_rect(pixmap, ICON_LEFT, icon_y, ICON_SIZE, ICON_SIZE, 3.0, icon_color);
+        fill_rounded_rect(
+            pixmap, ICON_LEFT, icon_y, ICON_SIZE, ICON_SIZE, 3.0, icon_color,
+        );
 
         // Title text
         let text_color = if i == active_index {

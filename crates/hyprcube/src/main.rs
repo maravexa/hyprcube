@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod history;
 mod preview;
 mod registry;
 mod shared_config;
@@ -15,8 +16,7 @@ fn main() {
     // 1. Init tracing with RUST_LOG / env filter, default to hyprcube=debug.
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("hyprcube=debug")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("hyprcube=debug")),
         )
         .init();
 
@@ -66,7 +66,11 @@ fn main() {
 
     let panel_info = registry.available_panels();
     let titles: Vec<&str> = panel_info.iter().map(|(_, t, _)| *t).collect();
-    tracing::info!("{} panels available: {}", panel_info.len(), titles.join(", "));
+    tracing::info!(
+        "{} panels available: {}",
+        panel_info.len(),
+        titles.join(", ")
+    );
 
     // 5. Run the Wayland event loop.
     let app_config = match wayland::run(registry, preview, app_config) {

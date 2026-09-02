@@ -94,7 +94,8 @@ impl Color {
 
     /// Convert to a `tiny_skia::Color`.
     pub fn to_skia(&self) -> tiny_skia::Color {
-        tiny_skia::Color::from_rgba(self.r, self.g, self.b, self.a).unwrap_or(tiny_skia::Color::BLACK)
+        tiny_skia::Color::from_rgba(self.r, self.g, self.b, self.a)
+            .unwrap_or(tiny_skia::Color::BLACK)
     }
 
     /// Convert to HSV: `(hue 0..360, saturation 0..1, value 0..1)`.
@@ -223,9 +224,24 @@ mod tests {
         let (h, s, v) = orig.to_hsv();
         let back = Color::from_hsv(h, s, v, 1.0);
         let tolerance = 1.0 / 255.0;
-        assert!((back.r - orig.r).abs() <= tolerance, "r off: {} vs {}", back.r, orig.r);
-        assert!((back.g - orig.g).abs() <= tolerance, "g off: {} vs {}", back.g, orig.g);
-        assert!((back.b - orig.b).abs() <= tolerance, "b off: {} vs {}", back.b, orig.b);
+        assert!(
+            (back.r - orig.r).abs() <= tolerance,
+            "r off: {} vs {}",
+            back.r,
+            orig.r
+        );
+        assert!(
+            (back.g - orig.g).abs() <= tolerance,
+            "g off: {} vs {}",
+            back.g,
+            orig.g
+        );
+        assert!(
+            (back.b - orig.b).abs() <= tolerance,
+            "b off: {} vs {}",
+            back.b,
+            orig.b
+        );
     }
 
     #[test]

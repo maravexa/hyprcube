@@ -75,7 +75,6 @@ impl InputPanel {
     pub fn with_arc(config: Arc<Mutex<HyprlandConfig>>) -> Self {
         Self { config }
     }
-
 }
 
 impl Default for InputPanel {
@@ -100,25 +99,31 @@ impl SettingsPanel for InputPanel {
             cfg.get_in_section("input", key).map(|s| s.to_string())
         };
         let tpad = |key: &str| -> Option<String> {
-            cfg.get_in_nested(&["input", "touchpad"], key).map(|s| s.to_string())
+            cfg.get_in_nested(&["input", "touchpad"], key)
+                .map(|s| s.to_string())
         };
 
-        let make_inp = |key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
-            let original = inp(key);
-            let current = original.clone().unwrap_or_default();
-            PanelField {
-                key: key.into(),
-                section: Some("input".into()),
-                label: label.into(),
-                description: desc.into(),
-                field_type: ft,
-                current_value: current,
-                original_value: original,
-                dirty: false,
-            }
-        };
+        let make_inp =
+            |key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
+                let original = inp(key);
+                let current = original.clone().unwrap_or_default();
+                PanelField {
+                    key: key.into(),
+                    section: Some("input".into()),
+                    label: label.into(),
+                    description: desc.into(),
+                    field_type: ft,
+                    current_value: current,
+                    original_value: original,
+                    dirty: false,
+                }
+            };
 
-        let make_tpad = |panel_key: &'static str, real_key: &'static str, label: &'static str, desc: &'static str, ft: FieldType| {
+        let make_tpad = |panel_key: &'static str,
+                         real_key: &'static str,
+                         label: &'static str,
+                         desc: &'static str,
+                         ft: FieldType| {
             let original = tpad(real_key);
             let current = original.clone().unwrap_or_default();
             PanelField {
@@ -139,20 +144,66 @@ impl SettingsPanel for InputPanel {
             .collect();
 
         vec![
-            make_inp("kb_layout", "Keyboard Layout", "XKB keyboard layout. Type to search or choose \"Other...\" for a custom code.",
-                FieldType::SearchableChoice { options: kb_layout_options }),
-            make_inp("follow_mouse", "Follow Mouse", "Focus behavior when the cursor enters a window.",
-                FieldType::Choice { options: vec!["0".into(), "1".into(), "2".into(), "3".into()] }),
-            make_inp("sensitivity", "Sensitivity", "Pointer sensitivity (-1.0 to 1.0).",
-                FieldType::Float { min: Some(-1.0), max: Some(1.0) }),
-            make_inp("accel_profile", "Acceleration Profile", "Pointer acceleration profile.",
-                FieldType::Choice { options: vec!["flat".into(), "adaptive".into()] }),
-            make_inp("scroll_method", "Scroll Method", "Scroll input method.",
-                FieldType::Choice { options: vec!["2fg".into(), "edge".into(), "on_button_down".into(), "no_scroll".into()] }),
-            make_tpad("touchpad.natural_scroll", "natural_scroll",
-                "Natural Scroll", "Invert touchpad scroll direction.", FieldType::Boolean),
-            make_tpad("touchpad.tap-to-click", "tap-to-click",
-                "Tap to Click", "Enable tap-to-click on the touchpad.", FieldType::Boolean),
+            make_inp(
+                "kb_layout",
+                "Keyboard Layout",
+                "XKB keyboard layout. Type to search or choose \"Other...\" for a custom code.",
+                FieldType::SearchableChoice {
+                    options: kb_layout_options,
+                },
+            ),
+            make_inp(
+                "follow_mouse",
+                "Follow Mouse",
+                "Focus behavior when the cursor enters a window.",
+                FieldType::Choice {
+                    options: vec!["0".into(), "1".into(), "2".into(), "3".into()],
+                },
+            ),
+            make_inp(
+                "sensitivity",
+                "Sensitivity",
+                "Pointer sensitivity (-1.0 to 1.0).",
+                FieldType::Float {
+                    min: Some(-1.0),
+                    max: Some(1.0),
+                },
+            ),
+            make_inp(
+                "accel_profile",
+                "Acceleration Profile",
+                "Pointer acceleration profile.",
+                FieldType::Choice {
+                    options: vec!["flat".into(), "adaptive".into()],
+                },
+            ),
+            make_inp(
+                "scroll_method",
+                "Scroll Method",
+                "Scroll input method.",
+                FieldType::Choice {
+                    options: vec![
+                        "2fg".into(),
+                        "edge".into(),
+                        "on_button_down".into(),
+                        "no_scroll".into(),
+                    ],
+                },
+            ),
+            make_tpad(
+                "touchpad.natural_scroll",
+                "natural_scroll",
+                "Natural Scroll",
+                "Invert touchpad scroll direction.",
+                FieldType::Boolean,
+            ),
+            make_tpad(
+                "touchpad.tap-to-click",
+                "tap-to-click",
+                "Tap to Click",
+                "Enable tap-to-click on the touchpad.",
+                FieldType::Boolean,
+            ),
         ]
     }
 
@@ -214,7 +265,9 @@ mod tests {
 
     fn panel_with_config(input: &str) -> InputPanel {
         let config = HyprlandConfig::parse(input).unwrap();
-        InputPanel { config: Arc::new(Mutex::new(config)) }
+        InputPanel {
+            config: Arc::new(Mutex::new(config)),
+        }
     }
 
     #[test]
@@ -246,15 +299,15 @@ mod tests {
 
     #[test]
     fn set_touchpad_value() {
-        let mut panel = panel_with_config(
-            "input {\n    touchpad {\n        natural_scroll = false\n    }\n}",
-        );
-        let old = panel
-            .set_value("touchpad.natural_scroll", "true")
-            .unwrap();
+        let mut panel =
+            panel_with_config("input {\n    touchpad {\n        natural_scroll = false\n    }\n}");
+        let old = panel.set_value("touchpad.natural_scroll", "true").unwrap();
         assert_eq!(old, "false");
         let fields = panel.fields();
-        let ns = fields.iter().find(|f| f.key == "touchpad.natural_scroll").unwrap();
+        let ns = fields
+            .iter()
+            .find(|f| f.key == "touchpad.natural_scroll")
+            .unwrap();
         assert_eq!(ns.current_value, "true");
     }
 }

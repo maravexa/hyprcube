@@ -7,6 +7,15 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Mara Vexa"]
+license = "MIT"
+repository = "https://github.com/maravexa/hyprcube"
+readme = "README.md"
+
 [workspace.dependencies]
 # Wayland / Smithay
 smithay-client-toolkit = "0.19"
@@ -33,10 +42,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 
 # Image / Icons
-image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico"] }
 freedesktop-icons = "0.2"
 
 # Internal crates
-hyprcube-core = { path = "crates/hyprcube-core" }
-hyprcube-panels = { path = "crates/hyprcube-panels" }
-hyprcube-hyprconf = { path = "crates/hyprcube-hyprconf" }
+hyprcube-core = { version = "0.1.0", path = "crates/hyprcube-core" }
+hyprcube-panels = { version = "0.1.0", path = "crates/hyprcube-panels" }
+hyprcube-hyprconf = { version = "0.1.0", path = "crates/hyprcube-hyprconf" }

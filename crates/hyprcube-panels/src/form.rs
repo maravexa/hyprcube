@@ -5,8 +5,8 @@ use hyprcube_core::color_picker::InlineColorPicker;
 use hyprcube_core::layout::Rect;
 use hyprcube_core::text::RenderContext;
 use hyprcube_core::widget::{
-    Dropdown, Event, EventResponse, SearchableDropdown, Slider, ScrollArea,
-    TextInput, Toggle, Widget, WidgetAction,
+    Button, Dropdown, Event, EventResponse, ScrollArea, SearchableDropdown, Slider, TextInput,
+    Toggle, Widget, WidgetAction,
 };
 
 use crate::{FieldType, PanelField};
@@ -46,7 +46,12 @@ impl FormLayout {
             let has_desc = !field.description.is_empty();
             let row_h = ROW_MAIN_H + if has_desc { ROW_DESC_H } else { 0.0 } + ROW_GAP;
             let widget = make_widget(&field);
-            rows.push(FormRow { field, widget, y_offset: y, height: row_h });
+            rows.push(FormRow {
+                field,
+                widget,
+                y_offset: y,
+                height: row_h,
+            });
             y += row_h;
         }
 
@@ -54,7 +59,12 @@ impl FormLayout {
         let mut scroll = ScrollArea::new(0.0);
         scroll.content_height = content_height;
 
-        Self { rows, scroll, focused_row: None, dragging_widget: None }
+        Self {
+            rows,
+            scroll,
+            focused_row: None,
+            dragging_widget: None,
+        }
     }
 
     /// Update the visible viewport height (call when window resizes).
@@ -110,7 +120,12 @@ impl FormLayout {
 
             let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
             let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-            let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+            let wb = Rect {
+                x: widget_x,
+                y: widget_y,
+                width: widget_w,
+                height: 32.0,
+            };
             row.widget.paint(pixmap, wb, ctx);
         }
 
@@ -127,7 +142,12 @@ impl FormLayout {
             let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
             let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
             let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-            let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+            let wb = Rect {
+                x: widget_x,
+                y: widget_y,
+                width: widget_w,
+                height: 32.0,
+            };
             row.widget.paint_overlay(pixmap, wb, ctx);
         }
     }
@@ -146,7 +166,10 @@ impl FormLayout {
                 }
                 if any_open {
                     self.dragging_widget = None;
-                    return EventResponse { consumed: true, action: None };
+                    return EventResponse {
+                        consumed: true,
+                        action: None,
+                    };
                 }
             }
         }
@@ -160,7 +183,12 @@ impl FormLayout {
                     let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
                     let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
                     let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-                    let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                    let wb = Rect {
+                        x: widget_x,
+                        y: widget_y,
+                        width: widget_w,
+                        height: 32.0,
+                    };
                     let resp = row.widget.event(event, &wb);
                     if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
                         row.field.current_value = value.clone();
@@ -174,7 +202,10 @@ impl FormLayout {
         match event {
             Event::Scroll { dy, .. } => {
                 self.scroll.scroll_by(*dy * 30.0);
-                return EventResponse { consumed: true, action: None };
+                return EventResponse {
+                    consumed: true,
+                    action: None,
+                };
             }
 
             Event::PointerUp { x, y } => {
@@ -191,7 +222,12 @@ impl FormLayout {
                         let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
                         let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
                         let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-                        let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                        let wb = Rect {
+                            x: widget_x,
+                            y: widget_y,
+                            width: widget_w,
+                            height: 32.0,
+                        };
                         let resp = row.widget.event(event, &wb);
                         if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
                             row.field.current_value = value.clone();
@@ -217,7 +253,12 @@ impl FormLayout {
                     };
                     if overlay_rect.contains(*x, *y) {
                         self.focused_row = Some(i);
-                        let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                        let wb = Rect {
+                            x: widget_x,
+                            y: widget_y,
+                            width: widget_w,
+                            height: 32.0,
+                        };
                         let resp = self.rows[i].widget.event(event, &wb);
                         if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
                             self.rows[i].field.current_value = value.clone();
@@ -228,15 +269,22 @@ impl FormLayout {
 
                 // Normal row hit-test.
                 let content_y = *y - bounds.y + self.scroll.scroll_offset;
-                if let Some(i) = self.rows.iter().position(|r| {
-                    content_y >= r.y_offset && content_y < r.y_offset + r.height
-                }) {
+                if let Some(i) = self
+                    .rows
+                    .iter()
+                    .position(|r| content_y >= r.y_offset && content_y < r.y_offset + r.height)
+                {
                     self.focused_row = Some(i);
                     let row = &mut self.rows[i];
                     let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
                     let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
                     let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-                    let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                    let wb = Rect {
+                        x: widget_x,
+                        y: widget_y,
+                        width: widget_w,
+                        height: 32.0,
+                    };
                     let resp = row.widget.event(event, &wb);
                     if let Some(WidgetAction::ValueChanged { ref value, .. }) = resp.action {
                         row.field.current_value = value.clone();
@@ -287,7 +335,12 @@ impl FormLayout {
                     };
                     if overlay_rect.contains(*x, *y) {
                         self.focused_row = Some(i);
-                        let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                        let wb = Rect {
+                            x: widget_x,
+                            y: widget_y,
+                            width: widget_w,
+                            height: 32.0,
+                        };
                         let resp = self.rows[i].widget.event(event, &wb);
                         if resp.consumed {
                             self.dragging_widget = Some(i);
@@ -301,15 +354,22 @@ impl FormLayout {
 
                 // Normal row hit-test.
                 let content_y = *y - bounds.y + self.scroll.scroll_offset;
-                if let Some(i) = self.rows.iter().position(|r| {
-                    content_y >= r.y_offset && content_y < r.y_offset + r.height
-                }) {
+                if let Some(i) = self
+                    .rows
+                    .iter()
+                    .position(|r| content_y >= r.y_offset && content_y < r.y_offset + r.height)
+                {
                     self.focused_row = Some(i);
                     let row = &mut self.rows[i];
                     let widget_x = bounds.x + bounds.width - widget_w - H_PAD;
                     let row_y = bounds.y + row.y_offset - self.scroll.scroll_offset;
                     let widget_y = row_y + (ROW_MAIN_H - 32.0) / 2.0;
-                    let wb = Rect { x: widget_x, y: widget_y, width: widget_w, height: 32.0 };
+                    let wb = Rect {
+                        x: widget_x,
+                        y: widget_y,
+                        width: widget_w,
+                        height: 32.0,
+                    };
                     let resp = row.widget.event(event, &wb);
                     if resp.consumed {
                         self.dragging_widget = Some(i);
@@ -341,7 +401,9 @@ impl FormLayout {
 
     /// Iterate over (key, current_value) for all rows.
     pub fn values(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.rows.iter().map(|r| (r.field.key.as_str(), r.field.current_value.as_str()))
+        self.rows
+            .iter()
+            .map(|r| (r.field.key.as_str(), r.field.current_value.as_str()))
     }
 }
 
@@ -350,27 +412,33 @@ fn make_widget(field: &PanelField) -> Box<dyn Widget> {
         FieldType::Text | FieldType::KeyBind => {
             Box::new(TextInput::new(&field.key, &field.current_value))
         }
+        FieldType::Action { label } => Box::new(Button::new(&field.key, label)),
         FieldType::Boolean => {
-            let on =
-                matches!(field.current_value.to_lowercase().as_str(), "true" | "yes" | "1");
+            let on = matches!(
+                field.current_value.to_lowercase().as_str(),
+                "true" | "yes" | "1"
+            );
             Box::new(Toggle::new(&field.key, on))
         }
         FieldType::Color => {
             // Try hex first, then Hyprland rgba() format.
             let color = hyprcube_core::color::Color::from_hex(&field.current_value)
-                .or_else(|_| {
-                    hyprcube_core::color::Color::from_hypr_rgba(&field.current_value)
-                })
+                .or_else(|_| hyprcube_core::color::Color::from_hypr_rgba(&field.current_value))
                 .unwrap_or(hyprcube_core::color::Color::new(0.5, 0.5, 0.5, 1.0));
             Box::new(InlineColorPicker::new(&field.key, color))
         }
         FieldType::Choice { options } => {
-            let sel = options.iter().position(|o| o == &field.current_value).unwrap_or(0);
+            let sel = options
+                .iter()
+                .position(|o| o == &field.current_value)
+                .unwrap_or(0);
             Box::new(Dropdown::new(&field.key, options.clone(), sel))
         }
-        FieldType::SearchableChoice { options } => {
-            Box::new(SearchableDropdown::new(&field.key, options.clone(), &field.current_value))
-        }
+        FieldType::SearchableChoice { options } => Box::new(SearchableDropdown::new(
+            &field.key,
+            options.clone(),
+            &field.current_value,
+        )),
         FieldType::Integer { min, max } => {
             let lo = min.unwrap_or(0) as f64;
             let hi = max.unwrap_or(100) as f64;

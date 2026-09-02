@@ -22,7 +22,10 @@ pub enum ConfigItem {
     /// A `key = value` assignment.
     KeyValue { key: String, value: String },
     /// A `name { ... }` section block (may be nested).
-    Section { name: String, items: Vec<ConfigItem> },
+    Section {
+        name: String,
+        items: Vec<ConfigItem>,
+    },
     /// A `source = path` include directive.
     Source(String),
 }
@@ -58,12 +61,13 @@ impl HyprlandConfig {
             } else if trimmed.starts_with('#') {
                 items.push(ConfigItem::Comment(trimmed.to_string()));
             } else if trimmed == "}" {
-                let (mut parent_items, name, _open_line) =
-                    stack.pop().ok_or(ParseError::UnexpectedCloseBrace(line_num))?;
+                let (mut parent_items, name, _open_line) = stack
+                    .pop()
+                    .ok_or(ParseError::UnexpectedCloseBrace(line_num))?;
                 parent_items.push(ConfigItem::Section { name, items });
                 items = parent_items;
-            } else if trimmed.ends_with('{') {
-                let name = trimmed[..trimmed.len() - 1].trim().to_string();
+            } else if let Some(name) = trimmed.strip_suffix('{') {
+                let name = name.trim().to_string();
                 stack.push((items, name, line_num));
                 items = Vec::new();
             } else if let Some(eq_pos) = trimmed.find('=') {
@@ -677,7 +681,9 @@ exec-once = waybar";
         let input = "source = ~/.config/hypr/keybinds.conf";
         let config = HyprlandConfig::parse(input).unwrap();
         assert_eq!(config.items.len(), 1);
-        assert!(matches!(&config.items[0], ConfigItem::Source(p) if p == "~/.config/hypr/keybinds.conf"));
+        assert!(
+            matches!(&config.items[0], ConfigItem::Source(p) if p == "~/.config/hypr/keybinds.conf")
+        );
         // Not returned by `get("source")`.
         assert_eq!(config.get("source"), None);
     }
@@ -711,10 +717,7 @@ a {
     }
 }";
         let config = HyprlandConfig::parse(input).unwrap();
-        assert_eq!(
-            config.get_in_nested(&["a", "b", "c"], "key"),
-            Some("deep")
-        );
+        assert_eq!(config.get_in_nested(&["a", "b", "c"], "key"), Some("deep"));
 
         let output = config.to_string_lossy();
         let reparsed = HyprlandConfig::parse(&output).unwrap();
@@ -772,10 +775,10 @@ source = ~/.config/hypr/b.conf";
                 _ => None,
             })
             .collect();
-        assert_eq!(sources, vec![
-            "~/.config/hypr/a.conf",
-            "~/.config/hypr/b.conf",
-        ]);
+        assert_eq!(
+            sources,
+            vec!["~/.config/hypr/a.conf", "~/.config/hypr/b.conf",]
+        );
     }
 
     #[test]

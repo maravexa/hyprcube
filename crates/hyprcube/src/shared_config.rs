@@ -62,16 +62,14 @@ impl SharedConfigs {
     /// any unsaved in-memory mutations.
     pub fn reload_hyprland(&self) -> io::Result<()> {
         let path = Self::hyprland_path();
-        let cfg = HyprlandConfig::load(&path)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let cfg = HyprlandConfig::load(&path).map_err(|e| io::Error::other(e.to_string()))?;
         *self.hyprland.lock().unwrap() = cfg;
         Ok(())
     }
 
     /// Reload `palette.toml` from disk, discarding unsaved mutations.
     pub fn reload_palette(&self) -> io::Result<()> {
-        let pal = Palette::load(None)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let pal = Palette::load(None).map_err(|e| io::Error::other(e.to_string()))?;
         *self.palette.lock().unwrap() = pal;
         Ok(())
     }

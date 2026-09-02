@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Rust on Linux. This repository does not currently pin a Rust toolchain or declare an MSRV, so use a current stable toolchain compatible with the locked dependency set. It also has no checked-in CI workflow; local verification is the project’s current quality gate.
+Use Rust on Linux. This repository does not currently pin a Rust toolchain or declare an MSRV, so use a current stable toolchain compatible with the locked dependency set. CI enforces workspace formatting, check, tests, strict Clippy, and Markdown linting. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
 
 The GUI is a Wayland application. A real GUI run needs a Wayland session, and Hyprland-specific behavior additionally needs a live Hyprland IPC environment. Do not treat GUI startup as a general development check; read [runtime safety](runtime-safety.md) before choosing manual runtime testing.
 

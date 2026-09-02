@@ -1,7 +1,7 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xdg_window,
+    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -11,11 +11,11 @@ use smithay_client_toolkit::{
         Capability, SeatHandler, SeatState,
     },
     shell::{
-        WaylandSurface,
         xdg::{
             window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
             XdgShell,
         },
+        WaylandSurface,
     },
     shm::{
         slot::{Buffer, SlotPool},
@@ -105,8 +105,8 @@ pub struct HyprCubeApp {
     keyboard: Option<wl_keyboard::WlKeyboard>,
 
     // Action bar state
-    /// When Some, display "Saved" label until the instant has elapsed 1 s.
-    save_feedback: Option<std::time::Instant>,
+    /// When Some, display the save result until the instant has elapsed.
+    save_feedback: Option<(std::time::Instant, String)>,
     /// Non-empty when Hyprland reported config errors after the last save.
     config_errors: Option<String>,
 }
@@ -130,21 +130,103 @@ fn keysym_name(raw: u32) -> String {
 }
 
 impl HyprCubeApp {
+    fn is_dirty(&self) -> bool {
+        self.preview.is_dirty() || self.registry.has_unsaved_changes()
+    }
+
+    fn apply_value_change(&mut self, key: String, value: String, section: Option<String>) {
+        let rebuild_dependent_form = key == "theme";
+        match self.registry.active_panel_mut().set_value(&key, &value) {
+            Ok(old) => self
+                .preview
+                .apply_preview(section.as_deref(), &key, &value, &old),
+            Err(error) => {
+                tracing::warn!("could not update {key}: {error}");
+                self.config_errors = Some(format!("Could not update setting: {error}"));
+            }
+        }
+        if rebuild_dependent_form {
+            self.form = None;
+        }
+        self.needs_redraw = true;
+    }
+
+    fn dispatch_content_event(&mut self, event: WidgetEvent) {
+        if self.form.is_none()
+            && self.registry.active_panel().requires_clean_state()
+            && self.is_dirty()
+        {
+            self.config_errors =
+                Some("Save or revert pending edits before using configuration history.".into());
+            self.needs_redraw = true;
+            return;
+        }
+
+        let bounds = self.content_bounds();
+        let (response, section) = if let Some(form) = &mut self.form {
+            let response = form.event(&event, bounds);
+            let section = match &response.action {
+                Some(WidgetAction::ValueChanged { key, .. }) => form
+                    .rows
+                    .iter()
+                    .find(|row| row.field.key == *key)
+                    .and_then(|row| row.field.section.clone()),
+                _ => None,
+            };
+            (response, section)
+        } else {
+            (self.registry.active_panel_mut().event(&event, bounds), None)
+        };
+
+        if response.consumed {
+            self.needs_redraw = true;
+        }
+        if let Some(WidgetAction::ValueChanged { key, value }) = response.action {
+            self.apply_value_change(key, value, section);
+        }
+        self.handle_external_config_change();
+    }
+
+    fn handle_external_config_change(&mut self) {
+        let Some(change) = self
+            .registry
+            .active_panel_mut()
+            .take_external_config_change()
+        else {
+            return;
+        };
+
+        self.preview.commit();
+        self.registry.reload_from_disk();
+        self.palette = self.registry.current_palette();
+        self.form = None;
+        if change.reload_hyprland {
+            if let Err(error) = self.preview.reload_hyprland() {
+                tracing::warn!("could not reload Hyprland after history restore: {error}");
+            }
+        }
+        self.config_errors = Some(change.message.clone());
+        self.save_feedback = Some((std::time::Instant::now(), change.message));
+        self.needs_redraw = true;
+    }
+
     /// The form's event-receiving bounds — excludes the action bar (when dirty)
     /// and the error banner (when errors are present).
     fn content_bounds(&self) -> Rect {
         const PADDING: f32 = 16.0;
         let content_x = sidebar::SIDEBAR_WIDTH + PADDING;
-        let is_dirty = self.preview.is_dirty();
-        let error_offset =
-            if self.config_errors.is_some() { ERROR_BANNER_H } else { 0.0 };
+        let is_dirty = self.is_dirty();
+        let error_offset = if self.config_errors.is_some() {
+            ERROR_BANNER_H
+        } else {
+            0.0
+        };
         let bottom_reserve = if is_dirty { ACTION_BAR_H } else { 0.0 };
         Rect {
             x: content_x,
             y: PADDING + error_offset,
             width: (self.width as f32 - content_x - PADDING).max(0.0),
-            height: (self.height as f32 - PADDING * 2.0 - error_offset - bottom_reserve)
-                .max(0.0),
+            height: (self.height as f32 - PADDING * 2.0 - error_offset - bottom_reserve).max(0.0),
         }
     }
 
@@ -193,7 +275,12 @@ impl HyprCubeApp {
         let content_w = (width as f32 - content_x - PADDING * 2.0).max(0.0);
         let active_idx = self.registry.active_index();
 
-        if self.form.is_none()
+        let custom_layout = self.registry.active_panel().uses_custom_layout();
+        if custom_layout {
+            self.form = None;
+            self.form_panel_idx = active_idx;
+            self.form_content_width = content_w;
+        } else if self.form.is_none()
             || active_idx != self.form_panel_idx
             || (content_w - self.form_content_width).abs() > 0.5
         {
@@ -210,9 +297,20 @@ impl HyprCubeApp {
             }
         }
 
-        // Expire save feedback after 1 second.
-        if self.save_feedback.map_or(false, |t| t.elapsed().as_secs() >= 1) {
+        // Expire save feedback after two seconds.
+        if self
+            .save_feedback
+            .as_ref()
+            .is_some_and(|(saved_at, _)| saved_at.elapsed().as_secs() >= 2)
+        {
             self.save_feedback = None;
+            if self
+                .config_errors
+                .as_deref()
+                .is_some_and(|message| message.starts_with("Saved"))
+            {
+                self.config_errors = None;
+            }
         }
 
         // Render to a temporary pixmap first.
@@ -222,8 +320,11 @@ impl HyprCubeApp {
         };
 
         let palette = self.registry.current_palette();
-        let is_dirty = self.preview.is_dirty();
-        let save_label = if self.save_feedback.is_some() { "Saved" } else { "Save" };
+        let is_dirty = self.is_dirty();
+        let save_label = self
+            .save_feedback
+            .as_ref()
+            .map_or("Save", |(_, message)| message.as_str());
 
         Self::render_to(
             &mut pixmap,
@@ -248,7 +349,12 @@ impl HyprCubeApp {
 
         let (buffer, canvas) = self
             .pool
-            .create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888)
+            .create_buffer(
+                width as i32,
+                height as i32,
+                stride,
+                wl_shm::Format::Argb8888,
+            )
             .expect("create buffer");
 
         // Convert RGBA (tiny_skia) → BGRA (Wayland ARGB8888 on little-endian).
@@ -287,14 +393,14 @@ impl HyprCubeApp {
             .unwrap_or(Color::new(0.118, 0.118, 0.18, 1.0));
         let surface_c = Color::from_hex(&palette.colors.surface)
             .unwrap_or(Color::new(0.192, 0.196, 0.267, 1.0));
-        let accent_c = Color::from_hex(&palette.colors.accent)
-            .unwrap_or(Color::new(0.537, 0.706, 0.98, 1.0));
+        let accent_c =
+            Color::from_hex(&palette.colors.accent).unwrap_or(Color::new(0.537, 0.706, 0.98, 1.0));
         let fg = Color::from_hex(&palette.colors.foreground)
             .unwrap_or(Color::new(0.804, 0.839, 0.957, 1.0));
         let overlay_c = Color::from_hex(&palette.colors.overlay)
             .unwrap_or(Color::new(0.424, 0.439, 0.525, 1.0));
-        let urgent_c = Color::from_hex(&palette.colors.urgent)
-            .unwrap_or(Color::new(0.953, 0.545, 0.659, 1.0));
+        let urgent_c =
+            Color::from_hex(&palette.colors.urgent).unwrap_or(Color::new(0.953, 0.545, 0.659, 1.0));
 
         pixmap.fill(bg.to_skia());
 
@@ -303,7 +409,7 @@ impl HyprCubeApp {
         let active_title = registry.active_panel().title();
         let active_visual = titles.iter().position(|t| *t == active_title).unwrap_or(0);
 
-        let font_size = (palette.fonts.size as f32).max(8.0).min(32.0);
+        let font_size = (palette.fonts.size as f32).clamp(8.0, 32.0);
 
         let mut pm = pixmap.as_mut();
         sidebar::paint(
@@ -336,12 +442,18 @@ impl HyprCubeApp {
                 height: ERROR_BANNER_H,
             };
             fill_rounded_rect(
-                &mut pm, banner.x, banner.y, banner.width, banner.height, 4.0, urgent_c,
+                &mut pm,
+                banner.x,
+                banner.y,
+                banner.width,
+                banner.height,
+                4.0,
+                urgent_c,
             );
             let text_y = banner.y + (ERROR_BANNER_H - font_size * 1.2) / 2.0;
-            let err_msg = format!("⚠ Config errors: {errors}");
+            let err_msg = format!("⚠ {errors}");
             // Use a reborrow so text_renderer stays available after this block.
-            (&mut *text_renderer).draw_text(
+            text_renderer.draw_text(
                 &mut pm,
                 &err_msg,
                 banner.x + 8.0,
@@ -367,7 +479,10 @@ impl HyprCubeApp {
                 height: form_h,
             };
             // Reborrow: ctx borrows text_renderer for this block only.
-            let mut ctx = RenderContext { text: &mut *text_renderer, palette };
+            let mut ctx = RenderContext {
+                text: &mut *text_renderer,
+                palette,
+            };
             if let Some(f) = form {
                 f.paint(bounds, &mut ctx, &mut pm);
             } else {
@@ -382,7 +497,15 @@ impl HyprCubeApp {
             let bar_y = height as f32 - PADDING - ACTION_BAR_H;
             let bar_w = content_width;
 
-            fill_rounded_rect(&mut pm, content_x, bar_y, bar_w, ACTION_BAR_H, 0.0, surface_c);
+            fill_rounded_rect(
+                &mut pm,
+                content_x,
+                bar_y,
+                bar_w,
+                ACTION_BAR_H,
+                0.0,
+                surface_c,
+            );
             // Separator line at top of action bar.
             fill_rounded_rect(&mut pm, content_x, bar_y, bar_w, 1.0, 0.0, overlay_c);
 
@@ -392,8 +515,7 @@ impl HyprCubeApp {
             // Save button (accent background).
             let save_x = content_x + bar_w - BTN_W;
             fill_rounded_rect(&mut pm, save_x, btn_y, BTN_W, BTN_H, 6.0, accent_c);
-            let (save_lbl_w, _) =
-                text_renderer.measure_text(save_label, font_size, BTN_W);
+            let (save_lbl_w, _) = text_renderer.measure_text(save_label, font_size, BTN_W);
             let save_text_x = save_x + (BTN_W - save_lbl_w) / 2.0;
             text_renderer.draw_text(
                 &mut pm,
@@ -415,8 +537,7 @@ impl HyprCubeApp {
             );
             fill_rounded_rect(&mut pm, revert_x, btn_y, BTN_W, BTN_H, 6.0, revert_bg);
             let revert_label = "Revert";
-            let (revert_lbl_w, _) =
-                text_renderer.measure_text(revert_label, font_size, BTN_W);
+            let (revert_lbl_w, _) = text_renderer.measure_text(revert_label, font_size, BTN_W);
             let revert_text_x = revert_x + (BTN_W - revert_lbl_w) / 2.0;
             text_renderer.draw_text(
                 &mut pm,
@@ -435,12 +556,18 @@ impl HyprCubeApp {
     // -----------------------------------------------------------------------
 
     fn handle_save(&mut self) {
-        // Write configs to disk.
-        if let Err(e) = self.registry.save_all() {
-            tracing::error!("save failed: {e}");
-        }
+        let notices = match self.registry.save_all() {
+            Ok(notices) => notices,
+            Err(error) => {
+                let message = format!("Save failed: {error}");
+                tracing::error!("{message}");
+                self.config_errors = Some(message);
+                self.needs_redraw = true;
+                return;
+            }
+        };
 
-        // Reload Hyprland from disk and check for errors.
+        // Only successful writes may reload Hyprland or commit undo state.
         match self.preview.reload_hyprland() {
             Ok(()) => {
                 self.config_errors = self.preview.check_config_errors();
@@ -454,10 +581,17 @@ impl HyprCubeApp {
             }
         }
 
-        // Commit undo stack and update render cache.
         self.preview.commit();
         self.palette = self.registry.current_palette();
-        self.save_feedback = Some(std::time::Instant::now());
+        let message = if notices.is_empty() {
+            "Saved".to_owned()
+        } else {
+            format!("Saved — {}", notices.join(" "))
+        };
+        if self.config_errors.is_none() {
+            self.config_errors = Some(message.clone());
+        }
+        self.save_feedback = Some((std::time::Instant::now(), message));
         self.needs_redraw = true;
     }
 
@@ -573,13 +707,7 @@ impl SeatHandler for HyprCubeApp {
         &mut self.seat_state
     }
 
-    fn new_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
-    }
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {}
 
     fn new_capability(
         &mut self,
@@ -619,12 +747,7 @@ impl SeatHandler for HyprCubeApp {
         }
     }
 
-    fn remove_seat(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-    ) {
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {
     }
 }
 
@@ -638,7 +761,7 @@ impl PointerHandler for HyprCubeApp {
     ) {
         for event in events {
             match event.kind {
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                PointerEventKind::Enter { .. } => {
                     self.pointer_x = event.position.0;
                     self.pointer_y = event.position.1;
 
@@ -652,6 +775,29 @@ impl PointerHandler for HyprCubeApp {
                     } else if self.hover_panel.is_some() {
                         self.hover_panel = None;
                         self.needs_redraw = true;
+                    }
+                }
+
+                PointerEventKind::Motion { .. } => {
+                    self.pointer_x = event.position.0;
+                    self.pointer_y = event.position.1;
+
+                    if self.pointer_x < sidebar::SIDEBAR_WIDTH as f64 {
+                        let panel_count = self.registry.available_panels().len();
+                        let new_hover = sidebar::hit_test(self.pointer_y as f32, panel_count);
+                        if new_hover != self.hover_panel {
+                            self.hover_panel = new_hover;
+                            self.needs_redraw = true;
+                        }
+                    } else {
+                        if self.hover_panel.is_some() {
+                            self.hover_panel = None;
+                            self.needs_redraw = true;
+                        }
+                        self.dispatch_content_event(WidgetEvent::PointerMove {
+                            x: self.pointer_x as f32,
+                            y: self.pointer_y as f32,
+                        });
                     }
                 }
 
@@ -672,7 +818,7 @@ impl PointerHandler for HyprCubeApp {
                         }
 
                         // Action bar buttons (only visible when dirty).
-                        if self.preview.is_dirty() {
+                        if self.is_dirty() {
                             if self.save_btn_rect().contains(px, py) {
                                 self.handle_save();
                                 continue;
@@ -683,93 +829,25 @@ impl PointerHandler for HyprCubeApp {
                             }
                         }
 
-                        // Forward to form — phase 1: get response while form is borrowed.
-                        // Compute bounds before borrowing self.form to avoid conflict.
-                        let bounds = self.content_bounds();
-                        let value_change = if let Some(form) = &mut self.form {
-                            let ev = WidgetEvent::PointerDown { x: px, y: py };
-                            let resp = form.event(&ev, bounds);
-                            if resp.consumed {
-                                self.needs_redraw = true;
-                            }
-                            if let Some(WidgetAction::ValueChanged { key, value }) = resp.action {
-                                let section = form
-                                    .rows
-                                    .iter()
-                                    .find(|r| r.field.key == key)
-                                    .and_then(|r| r.field.section.clone());
-                                Some((key, value, section))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        // Phase 2: apply without form borrow.
-                        if let Some((key, value, section)) = value_change {
-                            let old = self
-                                .registry
-                                .active_panel_mut()
-                                .set_value(&key, &value)
-                                .unwrap_or_default();
-                            self.preview.apply_preview(section.as_deref(), &key, &value, &old);
-                            self.needs_redraw = true;
-                        }
+                        self.dispatch_content_event(WidgetEvent::PointerDown { x: px, y: py });
                     }
                 }
 
                 PointerEventKind::Release { button, .. } => {
-                    if button == 0x110
-                        && self.pointer_x >= sidebar::SIDEBAR_WIDTH as f64
-                    {
+                    if button == 0x110 && self.pointer_x >= sidebar::SIDEBAR_WIDTH as f64 {
                         let px = self.pointer_x as f32;
                         let py = self.pointer_y as f32;
 
-                        let bounds = self.content_bounds();
-                        let value_change = if let Some(form) = &mut self.form {
-                            let ev = WidgetEvent::PointerUp { x: px, y: py };
-                            let resp = form.event(&ev, bounds);
-                            if resp.consumed {
-                                self.needs_redraw = true;
-                            }
-                            if let Some(WidgetAction::ValueChanged { key, value }) = resp.action {
-                                let section = form
-                                    .rows
-                                    .iter()
-                                    .find(|r| r.field.key == key)
-                                    .and_then(|r| r.field.section.clone());
-                                Some((key, value, section))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        if let Some((key, value, section)) = value_change {
-                            let old = self
-                                .registry
-                                .active_panel_mut()
-                                .set_value(&key, &value)
-                                .unwrap_or_default();
-                            self.preview.apply_preview(section.as_deref(), &key, &value, &old);
-                            self.needs_redraw = true;
-                        }
+                        self.dispatch_content_event(WidgetEvent::PointerUp { x: px, y: py });
                     }
                 }
 
                 PointerEventKind::Axis { vertical, .. } => {
                     if self.pointer_x >= sidebar::SIDEBAR_WIDTH as f64 {
-                        let bounds = self.content_bounds();
-                        if let Some(form) = &mut self.form {
-                            let ev =
-                                WidgetEvent::Scroll { dx: 0.0, dy: vertical.absolute as f32 };
-                            let resp = form.event(&ev, bounds);
-                            if resp.consumed {
-                                self.needs_redraw = true;
-                            }
-                        }
+                        self.dispatch_content_event(WidgetEvent::Scroll {
+                            dx: 0.0,
+                            dy: vertical.absolute as f32,
+                        });
                     }
                 }
 
@@ -827,36 +905,10 @@ impl KeyboardHandler for HyprCubeApp {
         let key_name = keysym_name(event.keysym.raw());
         let utf8 = event.utf8.clone();
 
-        let bounds = self.content_bounds();
-        let value_change = if let Some(form) = &mut self.form {
-            let ev = WidgetEvent::KeyPress { key: key_name, utf8 };
-            let resp = form.event(&ev, bounds);
-            if resp.consumed {
-                self.needs_redraw = true;
-            }
-            if let Some(WidgetAction::ValueChanged { key, value }) = resp.action {
-                let section = form
-                    .rows
-                    .iter()
-                    .find(|r| r.field.key == key)
-                    .and_then(|r| r.field.section.clone());
-                Some((key, value, section))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some((key, value, section)) = value_change {
-            let old = self
-                .registry
-                .active_panel_mut()
-                .set_value(&key, &value)
-                .unwrap_or_default();
-            self.preview.apply_preview(section.as_deref(), &key, &value, &old);
-            self.needs_redraw = true;
-        }
+        self.dispatch_content_event(WidgetEvent::KeyPress {
+            key: key_name,
+            utf8,
+        });
 
         if self.needs_redraw {
             self.draw(qh);
@@ -886,12 +938,7 @@ impl KeyboardHandler for HyprCubeApp {
 }
 
 impl WindowHandler for HyprCubeApp {
-    fn request_close(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _window: &Window,
-    ) {
+    fn request_close(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _window: &Window) {
         self.exit = true;
     }
 
@@ -943,14 +990,13 @@ pub fn run(
 ) -> Result<AppConfig, WaylandError> {
     let conn = Connection::connect_to_env().map_err(|_| WaylandError::NoWayland)?;
 
-    let (globals, mut event_queue) = registry_queue_init::<HyprCubeApp>(&conn)
-        .map_err(|e| WaylandError::Init(e.to_string()))?;
+    let (globals, mut event_queue) =
+        registry_queue_init::<HyprCubeApp>(&conn).map_err(|e| WaylandError::Init(e.to_string()))?;
     let qh = event_queue.handle();
 
     let compositor_state =
         CompositorState::bind(&globals, &qh).map_err(|e| WaylandError::Init(e.to_string()))?;
-    let xdg_shell =
-        XdgShell::bind(&globals, &qh).map_err(|e| WaylandError::Init(e.to_string()))?;
+    let xdg_shell = XdgShell::bind(&globals, &qh).map_err(|e| WaylandError::Init(e.to_string()))?;
     let shm = Shm::bind(&globals, &qh).map_err(|e| WaylandError::Init(e.to_string()))?;
 
     let surface = compositor_state.create_surface(&qh);
@@ -962,7 +1008,7 @@ pub fn run(
     let width = config.window_width;
     let height = config.window_height;
 
-    let pool = SlotPool::new((width as usize * height as usize * 4) as usize, &shm)
+    let pool = SlotPool::new(width as usize * height as usize * 4, &shm)
         .map_err(|e| WaylandError::Init(e.to_string()))?;
 
     window.wl_surface().commit();

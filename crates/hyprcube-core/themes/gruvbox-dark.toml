@@ -9,7 +9,7 @@ overlay    = "#665c54"
 [fonts]
 family      = "Inter"
 mono_family = "JetBrains Mono"
-size        = 14.0
+size        = 16.0
 
 [style]
 border_radius = 8.0

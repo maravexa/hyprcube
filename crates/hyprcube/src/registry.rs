@@ -1,14 +1,16 @@
 use hyprcube_core::palette::Palette;
 use hyprcube_hyprconf::HyprlandConfig;
-use hyprcube_panels::SettingsPanel;
 use hyprcube_panels::about::AboutPanel;
 use hyprcube_panels::appearance::AppearancePanel;
 use hyprcube_panels::display::DisplayPanel;
 use hyprcube_panels::hyprdeck::HyprdeckPanel;
 use hyprcube_panels::hyprland::HyprlandPanel;
+use hyprcube_panels::hyprpaper::HyprpaperPanel;
 use hyprcube_panels::hyprsaver::HyprsaverPanel;
 use hyprcube_panels::input::InputPanel;
+use hyprcube_panels::SettingsPanel;
 
+use crate::history::{HistoryPanel, HistoryStore};
 use crate::shared_config::SharedConfigs;
 
 /// Manages the list of available settings panels and the configs they share.
@@ -16,6 +18,7 @@ pub struct PanelRegistry {
     panels: Vec<Box<dyn SettingsPanel>>,
     active_index: usize,
     pub shared: SharedConfigs,
+    history: Option<HistoryStore>,
 }
 
 impl PanelRegistry {
@@ -39,6 +42,16 @@ impl PanelRegistry {
             p
         });
         let shared = SharedConfigs::new(hyprland, palette);
+        let (history, history_error) = match HistoryStore::open_default() {
+            Ok(store) => {
+                let error = store
+                    .capture("Initial configuration")
+                    .err()
+                    .map(|error| error.to_string());
+                (Some(store), error)
+            }
+            Err(error) => (None, Some(error.to_string())),
+        };
 
         // Distribute Arc clones to the panels that share configs.
         let all: Vec<Box<dyn SettingsPanel>> = vec![
@@ -46,15 +59,22 @@ impl PanelRegistry {
             Box::new(HyprlandPanel::with_arc(shared.hyprland.clone())),
             Box::new(InputPanel::with_arc(shared.hyprland.clone())),
             Box::new(DisplayPanel::new()),
+            Box::new(HyprpaperPanel::new()),
             Box::new(HyprdeckPanel::new()),
             Box::new(HyprsaverPanel::new()),
+            Box::new(HistoryPanel::new(history.clone(), history_error)),
             Box::new(AboutPanel::new()),
         ];
 
         let panels: Vec<Box<dyn SettingsPanel>> =
             all.into_iter().filter(|p| p.available()).collect();
 
-        Self { panels, active_index: 0, shared }
+        Self {
+            panels,
+            active_index: 0,
+            shared,
+            history,
+        }
     }
 
     /// Returns (index, title, icon) for each available panel.
@@ -78,7 +98,10 @@ impl PanelRegistry {
 
     /// Switch the active panel by index.
     pub fn set_active(&mut self, index: usize) {
-        assert!(index < self.panels.len(), "panel index {index} out of bounds");
+        assert!(
+            index < self.panels.len(),
+            "panel index {index} out of bounds"
+        );
         self.active_index = index;
     }
 
@@ -100,26 +123,61 @@ impl PanelRegistry {
             .position(|p| p.title().to_lowercase() == lower)
     }
 
-    /// Write all shared configs to disk.
+    /// Return whether any panel-local editor has unsaved configuration.
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.panels.iter().any(|panel| panel.has_unsaved_changes())
+    }
+
+    /// Write all shared and panel-local configs to disk.
     ///
     /// `hyprland.conf` is backed up to `.bak` before overwriting.
-    pub fn save_all(&self) -> std::io::Result<()> {
+    ///
+    /// A panel save is allowed to reject its own configuration. Callers must
+    /// treat any error as a failed save and retain their undo state.
+    pub fn save_all(&mut self) -> Result<Vec<String>, hyprcube_panels::PanelError> {
         self.shared.save_hyprland()?;
         self.shared
             .save_palette()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        Ok(())
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+        let mut notices = Vec::new();
+        for panel in &mut self.panels {
+            if !panel.has_unsaved_changes() {
+                continue;
+            }
+            let notice = panel.save_notice().map(ToString::to_string);
+            panel.save()?;
+            if let Some(notice) = notice {
+                notices.push(notice);
+            }
+        }
+        if let Some(history) = &self.history {
+            match history.capture("Saved configuration from HyprCube") {
+                Ok(_) => {}
+                Err(error) => notices.push(format!("History capture failed: {error}")),
+            }
+        }
+        for panel in &mut self.panels {
+            panel.refresh_external_state();
+        }
+        Ok(notices)
     }
 
     /// Discard all in-memory config mutations by reloading from disk.
     /// Called after `PreviewEngine::revert_all()` to keep the in-memory
     /// state consistent with what IPC has been told.
-    pub fn reload_from_disk(&self) {
+    pub fn reload_from_disk(&mut self) {
         if let Err(e) = self.shared.reload_hyprland() {
             tracing::warn!("failed to reload hyprland.conf: {e}");
         }
         if let Err(e) = self.shared.reload_palette() {
             tracing::warn!("failed to reload palette: {e}");
+        }
+        for panel in &mut self.panels {
+            if let Err(error) = panel.reload() {
+                tracing::warn!("failed to reload {} settings: {error}", panel.title());
+            }
+            panel.refresh_external_state();
         }
     }
 

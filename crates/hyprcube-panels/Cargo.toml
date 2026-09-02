@@ -1,7 +1,13 @@
 [package]
 name = "hyprcube-panels"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Settings panels and form models for HyprCube"
 
 [dependencies]
 hyprcube-core = { workspace = true }
@@ -12,3 +18,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
+image = { workspace = true }

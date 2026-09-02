@@ -45,7 +45,7 @@ Rendering is custom rather than delegated to a general-purpose GUI toolkit:
   text.
 - Core widgets implement controls such as toggles, sliders, dropdowns, text
   inputs, color pickers, and scroll areas.
-- Palette TOML files under `themes/` are embedded at compile time with
+- Palette TOML files under `crates/hyprcube-core/themes/` are embedded at compile time with
   `include_str!`; they are not read from an installed theme directory at
   runtime.
 
@@ -55,13 +55,14 @@ scroll, and keyboard events. A widget reports a
 `WidgetAction::ValueChanged`; the application applies the value to the active
 panel and asks the preview layer to process the corresponding Hyprland field.
 
-`SettingsPanel` also exposes custom paint and event hooks. The main loop
-currently constructs a `FormLayout` for every panel and does not route input
-through the panel event hook, so bespoke Appearance, Display, and About paths
-need end-to-end verification before being treated as fully integrated.
+`SettingsPanel` also exposes custom paint and event hooks. The main loop routes
+custom-layout panels through those hooks and uses `FormLayout` for ordinary
+field-driven panels. Appearance, Display, Hyprpaper, History, and About use
+custom layouts; the remaining configuration panels use generated forms.
 
-`PanelRegistry` creates all panels and filters optional HyprDeck and HyprSaver
-panels according to whether their configuration files exist. It shares one
+`PanelRegistry` creates all panels and filters optional HyprDeck, HyprSaver,
+and Hyprpaper panels according to application or configuration availability.
+It shares one
 `HyprlandConfig` between the Hyprland and Input panels and one `Palette`
 between the Appearance panel and renderer. Both use `Arc<Mutex<_>>` so those
 panels operate on common in-memory values.
@@ -79,32 +80,42 @@ palette TOML ─────load──> shared Palette ──────┘    
 
 At startup, `PanelRegistry` loads the structure-preserving Hyprland parser and
 palette into `SharedConfigs`. Hyprland and Input changes update their shared
-`HyprlandConfig`; Appearance changes update the shared `Palette`. HyprDeck and
-HyprSaver instead mutate panel-local TOML tables.
+`HyprlandConfig`; Appearance changes update the shared `Palette`. HyprDeck is
+a panel-local TOML editor backed by HyprDeck's versioned configuration contract:
+it invokes `hyprdeck --print-config-schema` and builds the theme, notification,
+and module controls from that schema. HyprSaver and Hyprpaper own panel-local
+configuration editors. HyprSaver can launch its native preview process and
+apply a snapshot-friendly override collection to native HyprSaver keys; its
+optional wallpaper override is represented as a later Hyprpaper source.
 
 When a field has a Hyprland section, `PreviewEngine` sends a `keyword` command
 over the Hyprland command socket and records the old value in its undo stack.
 Palette and other fields without a Hyprland section do not have an IPC keyword
 and do not mark that stack dirty.
 
-Save writes only the shared `hyprland.conf` and palette, asks Hyprland to reload
-when IPC is available, queries configuration errors, and commits the normal
-preview stack. Revert replays recorded IPC values in reverse, clears the stack,
-and reloads both shared values from disk. Exact paths, failure behavior, and
-side effects are documented in [Runtime safety](runtime-safety.md).
+Save writes the shared `hyprland.conf` and palette plus each dirty panel-local
+configuration. HyprDeck is validated with `hyprdeck --validate-config` before
+an atomic replacement with a `.bak` copy; HyprSaver and Hyprpaper use atomic
+same-directory replacements. A save error aborts the remaining flow: Hyprland
+is not reloaded and the preview undo stack is retained. Revert
+replays recorded IPC values in reverse, clears that stack, and reloads shared
+and panel-local configuration from disk. HyprDeck requires a restart after a
+successful save because it has no runtime reload protocol. Exact paths, failure
+behavior, and side effects are documented in [Runtime safety](runtime-safety.md).
 
-The Display implementation is distinct. When its custom event path is
-exercised, it queries monitors and sends synchronous `keyword monitor` IPC
-requests. Those requests bypass `PreviewEngine` and its undo stack.
+The Display implementation is distinct. It queries monitors through direct IPC
+with a `hyprctl -j monitors` fallback and sends synchronous `keyword monitor`
+requests for changed settings. Hyprpaper's explicit Apply Live button invokes
+the current `hyprctl hyprpaper wallpaper` interface. Those requests bypass
+`PreviewEngine` and its undo stack.
 
 ## Current limitations
 
 - `--daemon` is recognized but prints that daemon mode is not implemented and
   exits.
-- Custom panel paint and event hooks are not fully wired through the main
-  Wayland loop.
-- HyprDeck and HyprSaver edits are panel-local; the shared Save pipeline does
-  not write their TOML files.
+- Wayland does not provide a portable way to embed HyprSaver's independent
+  `xdg_toplevel` inside HyprCube. The preview control therefore opens
+  `hyprsaver --preview` as a separate native window.
 - `AppConfig` serializes palette and live-preview fields, but current runtime
   behavior does not consult them.
 

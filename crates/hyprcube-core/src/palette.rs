@@ -4,18 +4,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 // Preset palettes embedded at compile time.
-const PRESET_MOCHA: &str =
-    include_str!("../../../themes/catppuccin-mocha/palette.toml");
-const PRESET_LATTE: &str =
-    include_str!("../../../themes/catppuccin-latte/palette.toml");
-const PRESET_NORD: &str =
-    include_str!("../../../themes/nord/palette.toml");
-const PRESET_GRUVBOX: &str =
-    include_str!("../../../themes/gruvbox-dark/palette.toml");
-const PRESET_TOKYO: &str =
-    include_str!("../../../themes/tokyo-night/palette.toml");
-const PRESET_DRACULA: &str =
-    include_str!("../../../themes/dracula/palette.toml");
+const PRESET_MOCHA: &str = include_str!("../themes/catppuccin-mocha.toml");
+const PRESET_LATTE: &str = include_str!("../themes/catppuccin-latte.toml");
+const PRESET_NORD: &str = include_str!("../themes/nord.toml");
+const PRESET_GRUVBOX: &str = include_str!("../themes/gruvbox-dark.toml");
+const PRESET_TOKYO: &str = include_str!("../themes/tokyo-night.toml");
+const PRESET_DRACULA: &str = include_str!("../themes/dracula.toml");
 
 #[derive(Debug, Error)]
 pub enum PaletteError {
@@ -71,7 +65,7 @@ impl Default for Palette {
             fonts: PaletteFonts {
                 family: "Inter".into(),
                 mono_family: "JetBrains Mono".into(),
-                size: 14.0,
+                size: 16.0,
             },
             style: PaletteStyle {
                 border_radius: 8.0,
@@ -101,9 +95,7 @@ impl Palette {
     /// Return all built-in preset palettes as `(name, palette)` pairs.
     /// Ordering matches the display order in the Appearance panel dropdown.
     pub fn builtin_presets() -> Vec<(&'static str, Palette)> {
-        let parse = |s: &'static str| -> Palette {
-            toml::from_str(s).unwrap_or_default()
-        };
+        let parse = |s: &'static str| -> Palette { toml::from_str(s).unwrap_or_default() };
         vec![
             ("Catppuccin Mocha", parse(PRESET_MOCHA)),
             ("Catppuccin Latte", parse(PRESET_LATTE)),

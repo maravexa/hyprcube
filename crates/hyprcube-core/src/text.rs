@@ -1,4 +1,6 @@
-use cosmic_text::{Attrs, Buffer as CosmicBuffer, Family, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer as CosmicBuffer, Family, FontSystem, Metrics, Shaping, SwashCache,
+};
 use tiny_skia::PixmapMut;
 
 use crate::color::Color;
@@ -43,6 +45,7 @@ impl TextRenderer {
     }
 
     /// Render text into pixmap at (x, y) with the given font size and color.
+    #[allow(clippy::too_many_arguments)] // Drawing coordinates and bounds form one rendering operation.
     pub fn draw_text(
         &mut self,
         pixmap: &mut PixmapMut<'_>,
@@ -55,7 +58,11 @@ impl TextRenderer {
     ) {
         let metrics = Metrics::new(font_size, font_size * 1.3);
         let mut buffer = CosmicBuffer::new(&mut self.font_system, metrics);
-        buffer.set_size(&mut self.font_system, Some(max_width), Some(font_size * 2.0));
+        buffer.set_size(
+            &mut self.font_system,
+            Some(max_width),
+            Some(font_size * 2.0),
+        );
         buffer.set_text(
             &mut self.font_system,
             text,

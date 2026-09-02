@@ -146,12 +146,12 @@ impl InlineColorPicker {
 
     fn paint_sv_square(&self, pixmap: &mut PixmapMut<'_>, r: &Rect) {
         let hue_color = Color::from_hsv(self.hue, 1.0, 1.0, 1.0).to_skia();
-        let white = tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, 1.0)
-            .unwrap_or(tiny_skia::Color::WHITE);
-        let black_t = tiny_skia::Color::from_rgba(0.0, 0.0, 0.0, 0.0)
-            .unwrap_or(tiny_skia::Color::BLACK);
-        let black_o = tiny_skia::Color::from_rgba(0.0, 0.0, 0.0, 1.0)
-            .unwrap_or(tiny_skia::Color::BLACK);
+        let white =
+            tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, 1.0).unwrap_or(tiny_skia::Color::WHITE);
+        let black_t =
+            tiny_skia::Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap_or(tiny_skia::Color::BLACK);
+        let black_o =
+            tiny_skia::Color::from_rgba(0.0, 0.0, 0.0, 1.0).unwrap_or(tiny_skia::Color::BLACK);
 
         let skia_rect = match tiny_skia::Rect::from_xywh(r.x, r.y, r.width, r.height) {
             Some(rect) => rect,
@@ -162,12 +162,17 @@ impl InlineColorPicker {
         if let Some(shader) = LinearGradient::new(
             tiny_skia::Point::from_xy(r.x, r.y),
             tiny_skia::Point::from_xy(r.x + r.width, r.y),
-            vec![GradientStop::new(0.0, white), GradientStop::new(1.0, hue_color)],
+            vec![
+                GradientStop::new(0.0, white),
+                GradientStop::new(1.0, hue_color),
+            ],
             SpreadMode::Pad,
             Transform::identity(),
         ) {
-            let mut paint = Paint::default();
-            paint.shader = shader;
+            let paint = Paint {
+                shader,
+                ..Paint::default()
+            };
             pixmap.fill_rect(skia_rect, &paint, Transform::identity(), None);
         }
 
@@ -182,8 +187,10 @@ impl InlineColorPicker {
             SpreadMode::Pad,
             Transform::identity(),
         ) {
-            let mut paint = Paint::default();
-            paint.shader = shader;
+            let paint = Paint {
+                shader,
+                ..Paint::default()
+            };
             pixmap.fill_rect(skia_rect, &paint, Transform::identity(), None);
         }
 
@@ -216,8 +223,10 @@ impl InlineColorPicker {
             SpreadMode::Pad,
             Transform::identity(),
         ) {
-            let mut paint = Paint::default();
-            paint.shader = shader;
+            let paint = Paint {
+                shader,
+                ..Paint::default()
+            };
             pixmap.fill_rect(skia_rect, &paint, Transform::identity(), None);
         }
 
@@ -260,12 +269,10 @@ impl InlineColorPicker {
             Some(rect) => rect,
             None => return,
         };
-        let color_t =
-            tiny_skia::Color::from_rgba(self.value.r, self.value.g, self.value.b, 0.0)
-                .unwrap_or(tiny_skia::Color::TRANSPARENT);
-        let color_o =
-            tiny_skia::Color::from_rgba(self.value.r, self.value.g, self.value.b, 1.0)
-                .unwrap_or(tiny_skia::Color::BLACK);
+        let color_t = tiny_skia::Color::from_rgba(self.value.r, self.value.g, self.value.b, 0.0)
+            .unwrap_or(tiny_skia::Color::TRANSPARENT);
+        let color_o = tiny_skia::Color::from_rgba(self.value.r, self.value.g, self.value.b, 1.0)
+            .unwrap_or(tiny_skia::Color::BLACK);
 
         if let Some(shader) = LinearGradient::new(
             tiny_skia::Point::from_xy(r.x, r.y),
@@ -277,8 +284,10 @@ impl InlineColorPicker {
             SpreadMode::Pad,
             Transform::identity(),
         ) {
-            let mut paint = Paint::default();
-            paint.shader = shader;
+            let paint = Paint {
+                shader,
+                ..Paint::default()
+            };
             pixmap.fill_rect(skia_rect, &paint, Transform::identity(), None);
         }
 
@@ -296,7 +305,12 @@ impl InlineColorPicker {
     }
 
     /// Paint the expanded overlay body starting at `bounds.y + COLLAPSED_H`.
-    fn paint_expanded(&self, pixmap: &mut PixmapMut<'_>, bounds: &Rect, ctx: &mut RenderContext<'_>) {
+    fn paint_expanded(
+        &self,
+        pixmap: &mut PixmapMut<'_>,
+        bounds: &Rect,
+        ctx: &mut RenderContext<'_>,
+    ) {
         let surface = Color::from_hex(&ctx.palette.colors.surface)
             .unwrap_or(Color::new(0.192, 0.196, 0.267, 1.0));
         let fg = Color::from_hex(&ctx.palette.colors.foreground)
@@ -371,7 +385,11 @@ impl InlineColorPicker {
 
         // Hex input
         let hex_input_w = hex_r.width - 64.0;
-        let hex_border = if self.hex_focused { accent } else { overlay_color };
+        let hex_border = if self.hex_focused {
+            accent
+        } else {
+            overlay_color
+        };
 
         fill_rounded_rect(
             pixmap,
@@ -419,13 +437,7 @@ impl InlineColorPicker {
     }
 }
 
-fn draw_circle_outline(
-    pixmap: &mut PixmapMut<'_>,
-    cx: f32,
-    cy: f32,
-    r: f32,
-    color: Color,
-) {
+fn draw_circle_outline(pixmap: &mut PixmapMut<'_>, cx: f32, cy: f32, r: f32, color: Color) {
     let mut pb = PathBuilder::new();
     let k = 0.5522847_f32;
     pb.move_to(cx + r, cy);
@@ -439,18 +451,15 @@ fn draw_circle_outline(
         let mut paint = Paint::default();
         paint.set_color(color.to_skia());
         paint.anti_alias = true;
-        let stroke = tiny_skia::Stroke { width: 1.5, ..Default::default() };
+        let stroke = tiny_skia::Stroke {
+            width: 1.5,
+            ..Default::default()
+        };
         pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }
 
-fn draw_chevron(
-    pixmap: &mut PixmapMut<'_>,
-    cx: f32,
-    cy: f32,
-    color: Color,
-    flipped: bool,
-) {
+fn draw_chevron(pixmap: &mut PixmapMut<'_>, cx: f32, cy: f32, color: Color, flipped: bool) {
     let mut pb = PathBuilder::new();
     if flipped {
         pb.move_to(cx - 5.0, cy + 2.0);
@@ -478,7 +487,11 @@ fn draw_chevron(
 
 impl Widget for InlineColorPicker {
     fn measure(&self, constraints: Constraints) -> Size {
-        let h = if self.expanded { EXPANDED_H } else { COLLAPSED_H };
+        let h = if self.expanded {
+            EXPANDED_H
+        } else {
+            COLLAPSED_H
+        };
         Size {
             width: constraints.max_width.max(constraints.min_width),
             height: h.clamp(constraints.min_height, constraints.max_height),
@@ -562,15 +575,14 @@ impl Widget for InlineColorPicker {
     }
 
     fn overlay_height(&self) -> f32 {
-        if self.expanded { OVERLAY_H } else { 0.0 }
+        if self.expanded {
+            OVERLAY_H
+        } else {
+            0.0
+        }
     }
 
-    fn paint_overlay(
-        &self,
-        pixmap: &mut PixmapMut<'_>,
-        bounds: Rect,
-        ctx: &mut RenderContext<'_>,
-    ) {
+    fn paint_overlay(&self, pixmap: &mut PixmapMut<'_>, bounds: Rect, ctx: &mut RenderContext<'_>) {
         if !self.expanded {
             return;
         }
@@ -596,13 +608,19 @@ impl Widget for InlineColorPicker {
 
                 if self.dragging != DragTarget::None {
                     self.dragging = DragTarget::None;
-                    return EventResponse { consumed: true, action: None };
+                    return EventResponse {
+                        consumed: true,
+                        action: None,
+                    };
                 }
 
                 if header.contains(*x, *y) {
                     self.expanded = !self.expanded;
                     self.hex_focused = false;
-                    return EventResponse { consumed: true, action: None };
+                    return EventResponse {
+                        consumed: true,
+                        action: None,
+                    };
                 }
 
                 if self.expanded {
@@ -626,7 +644,10 @@ impl Widget for InlineColorPicker {
                                 }),
                             };
                         }
-                        return EventResponse { consumed: true, action: None };
+                        return EventResponse {
+                            consumed: true,
+                            action: None,
+                        };
                     }
 
                     // Hex input focus
@@ -638,7 +659,10 @@ impl Widget for InlineColorPicker {
                     };
                     if hex_input_rect.contains(*x, *y) {
                         self.hex_focused = true;
-                        return EventResponse { consumed: true, action: None };
+                        return EventResponse {
+                            consumed: true,
+                            action: None,
+                        };
                     }
                     self.hex_focused = false;
                 }
@@ -715,13 +739,11 @@ impl Widget for InlineColorPicker {
                         self.sync_from_hsv();
                     }
                     DragTarget::HueBar => {
-                        self.hue =
-                            ((x - hue_r.x) / hue_r.width * 360.0).clamp(0.0, 359.9);
+                        self.hue = ((x - hue_r.x) / hue_r.width * 360.0).clamp(0.0, 359.9);
                         self.sync_from_hsv();
                     }
                     DragTarget::AlphaBar => {
-                        self.value.a =
-                            ((x - alpha_r.x) / alpha_r.width).clamp(0.0, 1.0);
+                        self.value.a = ((x - alpha_r.x) / alpha_r.width).clamp(0.0, 1.0);
                         self.hex_input = self.value.to_hex();
                     }
                     DragTarget::None => {}
@@ -762,7 +784,10 @@ impl Widget for InlineColorPicker {
                         }
                     }
                 }
-                EventResponse { consumed: true, action: None }
+                EventResponse {
+                    consumed: true,
+                    action: None,
+                }
             }
 
             _ => EventResponse::ignored(),
@@ -819,7 +844,12 @@ mod tests {
     #[test]
     fn header_click_expands() {
         let mut cp = InlineColorPicker::new("c", Color::new(0.0, 0.5, 1.0, 1.0));
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
         let resp = cp.event(&Event::PointerUp { x: 100.0, y: 16.0 }, &bounds);
         assert!(resp.consumed);
         assert!(cp.expanded);
@@ -830,11 +860,19 @@ mod tests {
         let mut cp = InlineColorPicker::new("c", Color::new(1.0, 0.0, 0.0, 1.0));
         cp.expanded = true;
         cp.hue = 0.0;
-        let bounds = Rect { x: 0.0, y: 0.0, width: 200.0, height: 32.0 };
+        let bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 32.0,
+        };
         // Simulate PointerDown in SV square
         let sv_y = COLLAPSED_H + GAP;
         let resp = cp.event(
-            &Event::PointerDown { x: H_PAD + SV_W * 0.5, y: sv_y + SV_H * 0.5 },
+            &Event::PointerDown {
+                x: H_PAD + SV_W * 0.5,
+                y: sv_y + SV_H * 0.5,
+            },
             &bounds,
         );
         assert!(resp.consumed);
