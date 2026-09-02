@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated transitive Wayland XML and concurrency dependencies to releases
+  covering the RustSec advisories known at release time.
 - Custom Display and Appearance controls route pointer drag and keyboard input
   correctly, including exact slider value entry.
 - Display discovery falls back to `hyprctl -j monitors` when direct socket
