@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed tag to release
+        required: true
+        default: v0.1.0
 
 permissions:
   contents: write
@@ -12,10 +18,14 @@ jobs:
   release:
     name: Build and release
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install system dependencies
         run: |
@@ -38,7 +48,7 @@ jobs:
         run: |
           cargo_version=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.name == "hyprcube") | .version')
-          test "${GITHUB_REF_NAME}" = "v${cargo_version}"
+          test "${RELEASE_TAG}" = "v${cargo_version}"
 
       - name: Build release binary
         run: cargo build --release --locked -p hyprcube
@@ -57,7 +67,7 @@ jobs:
       - name: Package portable archive
         shell: bash
         run: |
-          version=${GITHUB_REF_NAME#v}
+          version=${RELEASE_TAG#v}
           staging="hyprcube-${version}-x86_64-linux"
           archive="${staging}.tar.zst"
           mkdir -p "${staging}"
@@ -75,6 +85,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
             ${{ steps.artifacts.outputs.deb }}
