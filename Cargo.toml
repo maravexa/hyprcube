@@ -23,7 +23,7 @@ wayland-client = "0.31"
 
 # Rendering
 tiny-skia = "0.11"
-cosmic-text = "0.12"
+cosmic-text = "0.19"
 
 # Async
 tokio = { version = "1", features = ["full"] }
