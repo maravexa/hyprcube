@@ -1,114 +1,54 @@
 # HyprCube
 
-A Rust-native GUI settings panel for [Hyprland](https://hyprland.org/) — no GTK, Qt, or Electron.
+HyprCube is a Rust-native settings application for [Hyprland](https://hyprland.org/). It renders its own Wayland interface with Smithay Client Toolkit, tiny-skia, and cosmic-text; it does not use GTK, Qt, or Electron.
 
-## Architecture
+## Platform requirements
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      hyprcube                           │
-│              (binary: CLI, config, app loop)             │
-│                                                         │
-│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│   │ hyprcube-core │  │hyprcube-panels│  │hyprcube-     │ │
-│   │              │  │              │  │  hyprconf    │ │
-│   │ color        │  │ Hyprland     │  │              │ │
-│   │ palette      │  │ Appearance   │  │ hyprland.conf│ │
-│   │ layout       │  │ Display      │  │ parser with  │ │
-│   │ render       │  │ Input        │  │ roundtrip    │ │
-│   │ widget       │  │ HyprDeck     │  │ fidelity     │ │
-│   │ ipc          │  │ HyprSaver    │  │              │ │
-│   │ undo         │  │ About        │  │              │ │
-│   └──────────────┘  └──────────────┘  └──────────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
+Building requires Rust on Linux. Using the desktop application requires a Wayland session. Hyprland is required for Hyprland IPC features such as live settings previews and monitor control; the application degrades where that IPC socket is unavailable.
 
-## Design Decisions
+## What it provides today
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| UI toolkit | Custom (tiny-skia + cosmic-text) | Visual consistency across HyprCube/HyprDeck/HyprSaver ecosystem |
-| Wayland integration | smithay-client-toolkit | Direct Wayland, no display server abstraction layer |
-| Config editing | Hybrid: file parser + IPC | Parser for disk persistence, IPC for instant live preview |
-| Config parser | Structure-preserving | Roundtrip hyprland.conf without losing comments or formatting |
-| Preview model | Immediate via IPC + undo stack | Changes appear instantly; reverted if user cancels |
-| Theming | Centralized palette.toml | HyprCube writes palette; sibling apps read it |
-| Unavailable apps | Graceful degradation | Panels for uninstalled apps are hidden, not disabled |
-| App lifecycle | On-demand (no daemon) | Launches when needed; `--daemon` reserved for future |
+- Hyprland and Input settings backed by a structure-preserving `hyprland.conf` parser.
+- Appearance and palette editing with built-in palette presets.
+- A native Wayland window, sidebar navigation, form widgets, and panel implementations for Display and About.
+- Optional HyprDeck and HyprSaver panels when their configuration files are present.
+- Live Hyprland preview with an undo/revert path for Hyprland-backed form edits.
 
-## Ecosystem — Palette Sync Flow
+The Display implementation has different safety characteristics from ordinary forms: when its event path is exercised, it applies monitor changes through Hyprland IPC immediately. Read the [runtime-safety guide](docs/runtime-safety.md) before manually exercising the GUI.
 
-```
-┌───────────┐   writes    ┌──────────────────────────────────┐
-│ HyprCube  │────────────▶│ ~/.config/hypr/                  │
-│ (settings)│             │   hyprcube-palette.toml          │
-└───────────┘             └──────────────┬───────────────────┘
-                                     │ reads
-                          ┌──────────┴───────────────┐
-                          │                          │
-                    ┌─────▼─────┐            ┌──────▼──────┐
-                    │ HyprDeck  │            │ HyprSaver   │
-                    │ (launcher)│            │ (lockscreen) │
-                    └───────────┘            └─────────────┘
-```
+## Workspace
 
-## Panels
+| Crate | Responsibility |
+| --- | --- |
+| `hyprcube` | Application entry point, CLI, Wayland event loop, shared config lifecycle, and preview orchestration. |
+| `hyprcube-core` | Rendering and widget primitives, palette support, Hyprland IPC, undo, and shared XDG config-path helpers. |
+| `hyprcube-panels` | Settings-panel contract and panel implementations. |
+| `hyprcube-hyprconf` | Structure-preserving `hyprland.conf` parsing and mutation. |
 
-| Panel | Description |
-|-------|-------------|
-| **Hyprland** | General settings: gaps, borders, layout, resize behavior |
-| **Appearance** | Palette colors, fonts, border radius, opacity |
-| **Display** | Monitor configuration (future: drag-and-drop layout) |
-| **Input** | Keyboard layout, mouse sensitivity, touchpad settings |
-| **HyprDeck** | Dock icon size, position, auto-hide (shown if installed) |
-| **HyprSaver** | Lock timeout, lock-on-sleep, background (shown if installed) |
-| **About** | System info: versions, kernel, hostname |
+For the dependency and data-flow details, see the [architecture guide](docs/architecture.md).
 
-## Build
+## Build and inspect
 
 ```bash
-cargo build --release
+cargo build --release --locked
+cargo run --locked -p hyprcube -- --help
+cargo run --locked -p hyprcube -- --version
 ```
 
-The binary is at `target/release/hyprcube`.
+`--help` and `--version` exit before application startup. Running `cargo run -p hyprcube` without either option starts the GUI and is not a routine smoke test. Do not use `--reset-config` unless you intend to delete the HyprCube application config; it has no confirmation prompt.
 
-## Usage
+`--daemon` is recognized but not implemented.
 
-```bash
-hyprcube                    # launch settings panel
-hyprcube --panel input      # jump directly to Input panel
-hyprcube --reset-config     # delete config and exit
-hyprcube --help             # show CLI options
-```
+## Install
 
-## Development
+`install.sh` builds a release binary, invokes `sudo`, and installs it to `/usr/local/sbin/hyprcube`. Inspect and run it only when that privileged system-wide installation is intended.
 
-```bash
-cargo check                          # type-check workspace
-cargo test                           # run all tests
-cargo test -p hyprcube-hyprconf      # test just the parser
-cargo clippy --workspace             # lint
-cargo run -p hyprcube                # run the app
-```
+## Documentation
 
-## Status / Roadmap
-
-**Done:**
-- Workspace structure with 4 crates
-- Core primitives: color, palette, layout, render, widget (Label, Toggle), IPC, undo
-- Structure-preserving hyprland.conf parser with full roundtrip fidelity
-- SettingsPanel trait and 7 panel implementations
-- Binary shell: config, CLI, panel registry, preview engine
-
-**Next:**
-- SCTK Wayland window and event loop
-- Remaining widgets: Slider, Dropdown, TextInput, ColorPicker, ScrollArea, TabBar
-- Sidebar navigation UI
-- Wire Hyprland panel fields to widgets with IPC preview and save
-- Palette editor with live sync to HyprDeck/HyprSaver
-- Display panel monitor drag-and-drop
-- HyprDeck panel auto-generated from module schemas
-
-## License
-
-TBD
+- [Agent guidance](AGENTS.md)
+- [Documentation index](docs/README.md)
+- [Development guide](docs/development.md)
+- [Architecture guide](docs/architecture.md)
+- [Runtime safety guide](docs/runtime-safety.md)
+- [Architecture decisions](docs/decisions/README.md)
+- [MIT License](LICENSE)
