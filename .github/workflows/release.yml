@@ -83,7 +83,7 @@ jobs:
           echo "rpm=$(find target/generate-rpm -name '*.rpm' -print -quit)" >> "${GITHUB_OUTPUT}"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
