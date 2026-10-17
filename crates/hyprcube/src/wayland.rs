@@ -915,6 +915,17 @@ impl KeyboardHandler for HyprCubeApp {
         }
     }
 
+    fn repeat_key(
+        &mut self,
+        conn: &Connection,
+        qh: &QueueHandle<Self>,
+        keyboard: &wl_keyboard::WlKeyboard,
+        serial: u32,
+        event: KeyEvent,
+    ) {
+        self.press_key(conn, qh, keyboard, serial, event);
+    }
+
     fn release_key(
         &mut self,
         _conn: &Connection,
@@ -932,6 +943,7 @@ impl KeyboardHandler for HyprCubeApp {
         _keyboard: &wl_keyboard::WlKeyboard,
         _serial: u32,
         _modifiers: Modifiers,
+        _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
         _layout: u32,
     ) {
     }

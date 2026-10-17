@@ -1,10 +1,12 @@
 name: Security Audit
 
 on:
+  pull_request:
   push:
     branches: [main]
   schedule:
     - cron: "0 0 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,8 +15,26 @@ jobs:
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned audit scanner
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit locked dependencies
+        shell: bash
+        # pipefail preserves scanner failures while keeping diagnostics.
+        # Maintenance notices remain visible; no advisories are ignored.
+        run: cargo audit --file Cargo.lock 2>&1 | tee audit.txt
+      - name: Retain audit diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: audit.txt
+          if-no-files-found: warn
+          retention-days: 14
