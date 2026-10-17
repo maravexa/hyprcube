@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Rust on Linux. This repository does not currently pin a Rust toolchain or declare an MSRV, so use a current stable toolchain compatible with the locked dependency set. CI enforces workspace formatting, check, tests, strict Clippy, and Markdown linting. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
+Use Rust on Linux. The workspace declares Rust 1.85 and CI retains a dedicated MSRV check. The `image` dependency is bounded to 0.25.9 because 0.25.10 requires Rust 1.88. Keep the locked dependency set compatible with the declared MSRV. Use a current stable toolchain compatible with the locked dependency set for development. CI enforces workspace formatting, check, unit and doc tests, strict Clippy, Markdown linting, a release build, and CLI help/version smoke checks. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
 
 The GUI is a Wayland application. A real GUI run needs a Wayland session, and Hyprland-specific behavior additionally needs a live Hyprland IPC environment. Do not treat GUI startup as a general development check; read [runtime safety](runtime-safety.md) before choosing manual runtime testing.
 
@@ -34,3 +34,27 @@ Prefer workspace dependency versions from the root `Cargo.toml`. Follow nearby e
 ## Keeping documentation current
 
 Update the relevant durable document when a crate boundary, configuration write path, IPC behavior, validation command, or runtime safety property changes. Record consequential architectural choices in the [decision log](decisions/README.md). The root [AGENTS.md](../AGENTS.md) defines the repository-wide working rules.
+
+## Dependency security checks
+
+The read-only security workflow runs on pull requests, main pushes, a weekly
+schedule, and manual dispatch. It runs pinned `cargo-audit` against `Cargo.lock`
+and preserves its exit status: vulnerabilities and scan errors fail the job.
+Maintenance notices remain visible in the log and the `dependency-audit`
+artifact without becoming automatic version upgrades or ignored advisories.
+The artifact is retained for 14 days, including when scanning fails. No issue
+or check-report API write permission is needed.
+
+CI limits Cargo to two build jobs and keeps lint independent of compilation.
+Workflow definitions cannot enable repository Actions settings or make checks
+required in branch protection; those settings need a separate maintainer review
+if pull requests do not receive runs.
+
+Smithay 0.20 uses xkbcommon 0.8, allowing the lockfile to use patched
+`memmap2 0.9.11` throughout. Keep `calloop` locked to 0.14.4 for Rust 1.85;
+0.14.5 requires Rust 1.86. Dependency refreshes must pass the MSRV job.
+
+The Smithay 0.20 keyboard handler accepts raw modifiers and forwards
+compositor key-repeat events through the existing key-press handler. Test
+keyboard repeat and modifier handling in an authorized isolated Wayland session
+before accepting this migration; compilation does not validate compositor behavior.
