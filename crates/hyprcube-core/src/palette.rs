@@ -120,3 +120,29 @@ impl Palette {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toml_presets_parse_without_default_fallback_and_round_trip() {
+        for source in [
+            PRESET_MOCHA,
+            PRESET_LATTE,
+            PRESET_NORD,
+            PRESET_GRUVBOX,
+            PRESET_TOKYO,
+            PRESET_DRACULA,
+        ] {
+            let palette: Palette = toml::from_str(source).unwrap();
+            assert!(palette.fonts.size > 0.0);
+            let encoded = toml::to_string_pretty(&palette).unwrap();
+            assert_eq!(toml::from_str::<Palette>(&encoded).unwrap(), palette);
+        }
+        let mut palette = Palette::default();
+        palette.fonts.family = "Snow 雪 \"quoted\"\nfont".into();
+        let encoded = toml::to_string_pretty(&palette).unwrap();
+        assert_eq!(toml::from_str::<Palette>(&encoded).unwrap(), palette);
+    }
+}

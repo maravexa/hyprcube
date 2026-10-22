@@ -58,3 +58,20 @@ The Smithay 0.20 keyboard handler accepts raw modifiers and forwards
 compositor key-repeat events through the existing key-press handler. Test
 keyboard repeat and modifier handling in an authorized isolated Wayland session
 before accepting this migration; compilation does not validate compositor behavior.
+
+## Configuration dependency compatibility
+
+Retain the TOML 0.8 parser while companion configuration compatibility is required.
+The TOML 1.1 candidate accepts additional syntax, including abbreviated times,
+that can be serialized into files older companion parsers reject. A migration
+must preserve both input interpretation and output readability across application,
+palette, HyprDeck, and HyprSaver configuration paths. Do not normalize previously
+unsupported values or add a second runtime parser merely to force an upgrade.
+The compatibility regressions cover typed defaults, palettes, unknown panel data,
+quoted keys, dates, overrides, duplicate keys, and legacy syntax boundaries.
+
+The declared Rust minimum is a compatibility target, separate from the compiler
+used to build releases. Keep testing Rust 1.85 and use current patched stable for
+release validation; an older installed toolchain named `stable` is not sufficient
+without checking its version. Retain cosmic-text until a justified migration can
+preserve supported Rust versions and receive rendering review.
