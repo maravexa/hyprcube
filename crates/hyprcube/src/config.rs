@@ -74,3 +74,51 @@ impl AppConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toml_partial_config_keeps_defaults_and_accepts_unknown_fields() {
+        let config: AppConfig = toml::from_str(
+            r#"
+            window_width = 1234
+            palette = 'custom \"palette'
+            future_option = { enabled = true }
+        "#,
+        )
+        .unwrap();
+        assert_eq!(config.window_width, 1234);
+        assert_eq!(config.window_height, 640);
+        assert_eq!(config.last_panel, 0);
+        assert!(config.live_preview);
+        assert_eq!(config.palette, "custom \\\"palette");
+    }
+
+    #[test]
+    fn toml_app_config_round_trip_and_invalid_types() {
+        let config = AppConfig {
+            palette: "Unicode: 雪, quotes: \" and newline\n".into(),
+            window_width: 1111,
+            window_height: 777,
+            last_panel: 6,
+            live_preview: false,
+        };
+        let encoded = toml::to_string_pretty(&config).unwrap();
+        let decoded: AppConfig = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded.palette, config.palette);
+        assert_eq!(decoded.window_width, 1111);
+        assert_eq!(decoded.window_height, 777);
+        assert_eq!(decoded.last_panel, 6);
+        assert!(!decoded.live_preview);
+        for invalid in [
+            "window_width = -1",
+            "window_width = 1.5",
+            "live_preview = 'false'",
+            "last_panel = 1\nlast_panel = 2",
+        ] {
+            assert!(toml::from_str::<AppConfig>(invalid).is_err(), "{invalid}");
+        }
+    }
+}
