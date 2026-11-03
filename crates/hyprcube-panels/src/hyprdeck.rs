@@ -773,6 +773,74 @@ mod tests {
         )
     }
     #[test]
+    fn toml_edit_preserves_unknown_keys_strings_and_dates() {
+        let source = r#"
+            theme = "win7"
+            "future.key" = { "quote\"key" = 'unchanged', "" = "empty key" }
+            updated = 1979-05-27T07:32:00Z
+            [modules.clock]
+            format = "%H:%M"
+            commands.refresh = 'printf "hello"'
+            [future]
+            values = [1, 2, 3]
+            multiline = """first
+second"""
+        "#;
+        let original: toml::Table = source.parse().unwrap();
+        let mut panel =
+            HyprdeckPanel::with_parts(PathBuf::from("unused.toml"), original.clone(), schema());
+        panel
+            .set_value("module:clock:show_seconds", "true")
+            .unwrap();
+        let encoded = toml::to_string_pretty(panel.config().unwrap()).unwrap();
+        let round_trip: toml::Table = encoded.parse().unwrap();
+        for key in ["future.key", "future", "updated"] {
+            assert_eq!(round_trip[key], original[key]);
+        }
+        assert!(round_trip["updated"].as_datetime().is_some());
+        assert_eq!(
+            round_trip["modules"]["clock"]["show_seconds"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            round_trip["modules"]["clock"]["commands"],
+            original["modules"]["clock"]["commands"]
+        );
+    }
+
+    #[test]
+    fn toml_documents_keep_legacy_syntax_boundaries() {
+        // These TOML 1.1 additions must not silently become writable configs
+        // for companion applications that still use a TOML 1.0 parser.
+        for newer_syntax in [
+            "time = 12:34",
+            "value = { enabled = true, }",
+            r#"value = "\e""#,
+            r#"value = "\x41""#,
+        ] {
+            assert!(
+                newer_syntax.parse::<toml::Table>().is_err(),
+                "{newer_syntax}"
+            );
+        }
+        let legacy: toml::Table = "time = 12:34:00".parse().unwrap();
+        let encoded = toml::to_string_pretty(&legacy).unwrap();
+        assert_eq!(encoded.parse::<toml::Table>().unwrap(), legacy);
+    }
+
+    #[test]
+    fn toml_documents_reject_duplicate_and_conflicting_keys() {
+        for invalid in [
+            "theme = 'win7'\ntheme = 'other'",
+            "[modules.clock]\nformat = 'a'\nformat = 'b'",
+            "theme = { name = 'a', name = 'b' }",
+            "theme = 'win7'\n[theme]\nname = 'other'",
+        ] {
+            assert!(invalid.parse::<toml::Table>().is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
     fn exposes_contract_module_fields_with_defaults() {
         let fields = panel().fields();
         let theme = fields.iter().find(|field| field.key == "theme").unwrap();

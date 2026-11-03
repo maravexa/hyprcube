@@ -742,6 +742,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn toml_override_preserves_playlists_and_unknown_values() {
+        let source = r#"
+            [general]
+            fps = 30
+            palette = "old"
+            [playlists]
+            "night.sky" = ["starfield", "rain"]
+            [future]
+            date = 2026-10-17
+            time = 12:34:56
+            enabled = true
+            [hyprcube_override]
+            enabled = true
+            palette = "aurora"
+        "#;
+        let original: toml::Table = source.parse().unwrap();
+        let mut panel = HyprsaverPanel::with_config(PathBuf::from("unused.toml"), original.clone());
+        panel.set_value("general.fps", "60").unwrap();
+        panel.apply_override().unwrap();
+        let encoded = toml::to_string_pretty(panel.table().unwrap()).unwrap();
+        let round_trip: toml::Table = encoded.parse().unwrap();
+        assert_eq!(round_trip["future"], original["future"]);
+        assert_eq!(round_trip["playlists"], original["playlists"]);
+        assert_eq!(round_trip["general"]["fps"].as_integer(), Some(60));
+        assert_eq!(round_trip["general"]["palette"].as_str(), Some("aurora"));
+    }
+
+    #[test]
     fn exposes_native_general_and_behavior_options() {
         let mut table = toml::Table::new();
         table_set_path(&mut table, "general.fps", toml::Value::Integer(30)).unwrap();

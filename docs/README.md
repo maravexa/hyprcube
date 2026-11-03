@@ -18,6 +18,7 @@ root README or repository-wide contributor guide.
   and AUR preparation.
 - [Decisions](decisions/README.md) — decision-record policy and accepted
   cross-cutting choices, including the [HyprDeck CLI contract](decisions/0001-hyprdeck-cli-contract.md).
+- [Rust 1.86 and Smithay 0.21](decisions/0002-smithay-rust186.md) — supported compiler minimum for the dispatch migration.
 
 ## Authority and freshness
 
