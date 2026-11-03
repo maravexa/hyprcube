@@ -8,7 +8,7 @@ HyprCube is a Rust-native settings application for [Hyprland](https://hyprland.o
 
 ## Platform requirements
 
-Building requires Rust on Linux. Using the desktop application requires a Wayland session, and configuration history requires the `git` executable. Hyprland is required for Hyprland IPC features such as live settings previews and monitor control; the application degrades where that IPC socket is unavailable.
+Building requires Rust 1.86 or later on Linux. Using the desktop application requires a Wayland session, and configuration history requires the `git` executable. Hyprland is required for Hyprland IPC features such as live settings previews and monitor control; the application degrades where that IPC socket is unavailable.
 
 ## What it provides today
 
