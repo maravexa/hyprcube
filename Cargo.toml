@@ -10,7 +10,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.86"
 authors = ["Mara Vexa"]
 license = "MIT"
 repository = "https://github.com/maravexa/hyprcube"
@@ -18,7 +18,7 @@ readme = "README.md"
 
 [workspace.dependencies]
 # Wayland / Smithay
-smithay-client-toolkit = "0.20"
+smithay-client-toolkit = "0.21"
 wayland-client = "0.31"
 
 # Rendering
@@ -26,7 +26,7 @@ tiny-skia = "0.11"
 cosmic-text = "0.12"
 
 # Async
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 
 # Serialization / Config
@@ -42,7 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 
 # Image / Icons
-# image 0.25.10 requires Rust 1.88; retain the declared Rust 1.85 MSRV.
+# image 0.25.10 requires Rust 1.88; retain the Rust 1.86 MSRV.
 image = { version = ">=0.25.9, <0.25.10", default-features = false, features = ["png", "jpeg", "webp", "ico"] }
 freedesktop-icons = "0.2"
 

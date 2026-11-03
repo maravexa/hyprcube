@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Rust on Linux. The workspace declares Rust 1.85 and CI retains a dedicated MSRV check. The `image` dependency is bounded to 0.25.9 because 0.25.10 requires Rust 1.88. Keep the locked dependency set compatible with the declared MSRV. Use a current stable toolchain compatible with the locked dependency set for development. CI enforces workspace formatting, check, unit and doc tests, strict Clippy, Markdown linting, a release build, and CLI help/version smoke checks. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
+Use Rust on Linux. The workspace declares Rust 1.86 and CI retains a dedicated MSRV check and runs the workspace regressions on that minimum. The `image` dependency is bounded to 0.25.9 because 0.25.10 requires Rust 1.88. Keep the locked dependency set compatible with the declared MSRV. Use a current stable toolchain compatible with the locked dependency set for development. CI enforces workspace formatting, check, unit and doc tests, strict Clippy, Markdown linting, a release build, and CLI help/version smoke checks. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
 
 The GUI is a Wayland application. A real GUI run needs a Wayland session, and Hyprland-specific behavior additionally needs a live Hyprland IPC environment. Do not treat GUI startup as a general development check; read [runtime safety](runtime-safety.md) before choosing manual runtime testing.
 
@@ -50,11 +50,29 @@ Workflow definitions cannot enable repository Actions settings or make checks
 required in branch protection; those settings need a separate maintainer review
 if pull requests do not receive runs.
 
-Smithay 0.20 uses xkbcommon 0.8, allowing the lockfile to use patched
-`memmap2 0.9.11` throughout. Keep `calloop` locked to 0.14.4 for Rust 1.85;
-0.14.5 requires Rust 1.86. Dependency refreshes must pass the MSRV job.
+Smithay 0.21.1 uses xkbcommon 0.8, allowing the lockfile to use patched
+`memmap2 0.9.11` throughout. The existing `calloop` 0.14.4 lock is retained
+to keep this migration focused.
+Dependency refreshes must pass the MSRV job.
 
-The Smithay 0.20 keyboard handler accepts raw modifiers and forwards
+The Smithay 0.21.1 keyboard handler accepts raw modifiers and forwards
 compositor key-repeat events through the existing key-press handler. Test
 keyboard repeat and modifier handling in an authorized isolated Wayland session
 before accepting this migration; compilation does not validate compositor behavior.
+
+## Configuration dependency compatibility
+
+Retain the TOML 0.8 parser while companion configuration compatibility is required.
+The TOML 1.1 candidate accepts additional syntax, including abbreviated times,
+that can be serialized into files older companion parsers reject. A migration
+must preserve both input interpretation and output readability across application,
+palette, HyprDeck, and HyprSaver configuration paths. Do not normalize previously
+unsupported values or add a second runtime parser merely to force an upgrade.
+The compatibility regressions cover typed defaults, palettes, unknown panel data,
+quoted keys, dates, overrides, duplicate keys, and legacy syntax boundaries.
+
+The declared Rust minimum is a compatibility target, separate from the compiler
+used to build releases. Keep testing Rust 1.86 and use current patched stable for
+release validation; an older installed toolchain named `stable` is not sufficient
+without checking its version. Retain cosmic-text until a justified migration can
+preserve supported Rust versions and receive rendering review.
