@@ -1,7 +1,6 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xdg_window,
+    delegate_dispatch2, delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -981,14 +980,7 @@ impl ProvidesRegistryState for HyprCubeApp {
     registry_handlers![OutputState, SeatState];
 }
 
-delegate_compositor!(HyprCubeApp);
-delegate_output!(HyprCubeApp);
-delegate_shm!(HyprCubeApp);
-delegate_seat!(HyprCubeApp);
-delegate_pointer!(HyprCubeApp);
-delegate_keyboard!(HyprCubeApp);
-delegate_xdg_shell!(HyprCubeApp);
-delegate_xdg_window!(HyprCubeApp);
+delegate_dispatch2!(HyprCubeApp);
 delegate_registry!(HyprCubeApp);
 
 // ---------------------------------------------------------------------------
