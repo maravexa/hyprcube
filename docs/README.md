@@ -11,6 +11,7 @@ root README or repository-wide contributor guide.
   contract and safety rules.
 - [Architecture](architecture.md) — crate boundaries, dependency direction,
   and system design.
+- [Image and Rust 1.88 decision](decisions/0003-image-rust188.md).
 - [Development](development.md) — prerequisites and the validation ladder.
 - [Runtime safety](runtime-safety.md) — configuration, IPC, and external-state
   safeguards.

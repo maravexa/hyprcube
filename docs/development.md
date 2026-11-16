@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Rust on Linux. The workspace declares Rust 1.86 and CI retains a dedicated MSRV check and runs the workspace regressions on that minimum. The `image` dependency is bounded to 0.25.9 because 0.25.10 requires Rust 1.88. Keep the locked dependency set compatible with the declared MSRV. Use a current stable toolchain compatible with the locked dependency set for development. CI enforces workspace formatting, check, unit and doc tests, strict Clippy, Markdown linting, a release build, and CLI help/version smoke checks. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
+Use Rust on Linux. The workspace declares Rust 1.88 and CI retains a dedicated MSRV check and runs the workspace regressions on that minimum. The `image` dependency starts at 0.25.10, which requires Rust 1.88. Keep the locked dependency set compatible with the declared MSRV. Use a current stable toolchain compatible with the locked dependency set for development. CI enforces workspace formatting, check, unit and doc tests, strict Clippy, Markdown linting, a release build, and CLI help/version smoke checks. Markdown lint intentionally permits long prose and table rows; local verification remains important for focused changes.
 
 The GUI is a Wayland application. A real GUI run needs a Wayland session, and Hyprland-specific behavior additionally needs a live Hyprland IPC environment. Do not treat GUI startup as a general development check; read [runtime safety](runtime-safety.md) before choosing manual runtime testing.
 
@@ -72,7 +72,7 @@ The compatibility regressions cover typed defaults, palettes, unknown panel data
 quoted keys, dates, overrides, duplicate keys, and legacy syntax boundaries.
 
 The declared Rust minimum is a compatibility target, separate from the compiler
-used to build releases. Keep testing Rust 1.86 and use current patched stable for
+used to build releases. Keep testing Rust 1.88 and use current patched stable for
 release validation; an older installed toolchain named `stable` is not sufficient
 without checking its version. Retain cosmic-text until a justified migration can
 preserve supported Rust versions and receive rendering review.
